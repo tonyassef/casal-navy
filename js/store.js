@@ -21,7 +21,7 @@ const Store = {
 
   // ---------- sessao ----------
   async boot() {
-    const cfg = this._ls('sbconfig');
+    const cfg = this._ls('sbconfig') || DEFAULT_SB;
     if (cfg && cfg.url && cfg.key) { this.cfg = cfg; SB.configure(cfg.url, cfg.key); }
     const sess = this._ls('session');
     if (!sess) return false;

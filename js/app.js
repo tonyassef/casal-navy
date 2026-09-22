@@ -465,12 +465,12 @@ function renderConta() {
     <span class="badge ${cloud?'':'dim'}">${cloud ? '☁️ conta na nuvem' : '📱 conta local'}</span></div>`;
 
   h += `<div class="card"><h3>Banco de dados (nuvem)</h3>
-    <div class="sub">Para sincronizar entre o Android e o iPhone (e a conta da Eliza), conecte um banco gratis do Supabase. Sem isso, a conta fica só neste aparelho.</div>
+    <div class="sub">☁️ Nuvem já configurada — é só criar sua conta que tudo sincroniza entre o Android e o iPhone (e a conta da Eliza).</div>
     <label class="lbl">Supabase URL</label><input id="c-url" placeholder="https://xyz.supabase.co" value="${esc(cfg.url||'')}">
     <label class="lbl">Supabase anon key</label><input id="c-key" placeholder="cole a anon key" value="${esc(cfg.key||'')}">
     <button class="btn primary" id="c-save">Salvar conexão</button>
-    ${cfg.url ? '<button class="btn" id="c-clear">Desconectar nuvem</button>' : ''}
-    <div class="sub">Passos: 1) crie o projeto em supabase.com • 2) rode o arquivo <b>supabase/schema.sql</b> no SQL Editor • 3) em Auth → desative "Confirm email" • 4) cole URL e anon key aqui.</div></div>`;
+    <button class="btn" id="c-clear">Voltar ao padrão</button>
+    <div class="sub">Só mexa aqui se um dia quiser trocar de projeto no Supabase.</div></div>`;
 
   h += `<div class="card"><h3>Backup</h3>
     <button class="btn" id="c-expjson">⬇ Exportar backup (JSON)</button>
@@ -489,7 +489,7 @@ function renderConta() {
     renderConta();
   });
   const cc = $('#c-clear'); if (cc) cc.addEventListener('click', () => {
-    localStorage.removeItem('casalnavy.sbconfig'); Store.cfg = {url:'',key:''}; renderConta(); toast('Nuvem desconectada.');
+    localStorage.removeItem('casalnavy.sbconfig'); Store.cfg = {...DEFAULT_SB}; SB.configure(Store.cfg.url, Store.cfg.key); renderConta(); toast('Conexão padrão restaurada. ☁️');
   });
   $('#c-expjson').addEventListener('click', async () => {
     const data = { app: 'casal-navy', user: Store.user.name, exported_at: new Date().toISOString(),

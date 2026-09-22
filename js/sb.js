@@ -1,6 +1,11 @@
 // Cliente minimo do Supabase via REST (sem dependencias externas).
 // Usa: Auth (signup/signin) + PostgREST (tabelas). A anon key e publica
 // por desenho e fica protegida pelas policies RLS do schema.sql.
+// Projeto padrao do Casal Navy (pre-configurado; pode ser trocado na tela Conta).
+const DEFAULT_SB = {
+  url: 'https://rbumnmyeahjtjxeyrnry.supabase.co',
+  key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJidW1ubXllYWhqdGp4ZXlybnJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwNDc2ODAsImV4cCI6MjEwNTYyMzY4MH0.Zm-UJKt2Lpqgb6-xevMKCO47qBijGKQ2TXBr69dtIQM',
+};
 const SB = {
   url: null, key: null, token: null, refreshToken: null, user: null,
 
