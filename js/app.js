@@ -398,8 +398,8 @@ function renderPlano() {
     });
     h += `<button class="btn small" id="p-addday">+ dia</button><div class="divider"></div>
       <label class="lbl">Trocar pelo modelo pronto</label>
-      <div class="row2"><button class="btn small" id="p-tpl3">Rotação A/B/C</button>
-      <button class="btn small" id="p-tpl6">Seg–Sáb (6 dias)</button></div>
+      <div class="row2"><button class="btn small" id="p-tpl6">Rotação A–F (6 treinos)</button>
+      <button class="btn small" id="p-tpl3">A/B/C mesclado (3 treinos)</button></div>
       <button class="btn primary" id="p-save">Salvar plano ✓</button>
       <button class="btn" id="p-cancel">Cancelar</button></div>`;
   }
@@ -445,8 +445,8 @@ function renderPlano() {
   $('#p-addday').addEventListener('click', () => {
     const p = collect(); p.days.push({ day: 'Novo dia', muscle: '', exercises: [] }); S.plan = p; renderPlano();
   });
-  $('#p-tpl3').addEventListener('click', () => { if (confirm('Substituir pelo modelo rotação A/B/C?')) { S.plan = { name:'Rotação A/B/C', days: JSON.parse(JSON.stringify(PLAN_3DAY)) }; renderPlano(); } });
-  $('#p-tpl6').addEventListener('click', () => { if (confirm('Substituir pelo modelo seg–sáb?')) { S.plan = { name:'Seg–Sáb', days: JSON.parse(JSON.stringify(PLAN_6DAY)) }; renderPlano(); } });
+  $('#p-tpl6').addEventListener('click', () => { if (confirm('Substituir pelo modelo rotação A–F (6 treinos)?')) { S.plan = { name:'Rotação A–F', days: JSON.parse(JSON.stringify(PLAN_6DAY)) }; renderPlano(); } });
+  $('#p-tpl3').addEventListener('click', () => { if (confirm('Substituir pelo modelo A/B/C mesclado (3 treinos)?')) { S.plan = { name:'Rotação A/B/C', days: JSON.parse(JSON.stringify(PLAN_3DAY)) }; renderPlano(); } });
   $('#p-save').addEventListener('click', async () => {
     try { const p = collect(); await Store.savePlan(p); S.plan = await Store.getPlan();
       S.editPlan = false; renderPlano(); renderHoje(); toast('Plano atualizado! ✓'); }

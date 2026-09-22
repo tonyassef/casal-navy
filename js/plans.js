@@ -1,5 +1,5 @@
-// Plano padrao: rotacao de 3 dias (A=costas, B=peito, C=pernas).
-// PLAN_6DAY: modelo alternativo com dias fixos seg-sab.
+// Plano padrao: rotacao de 6 treinos (A/B/C/D/E/F), sem dias fixos.
+// PLAN_3DAY: modelo alternativo mesclado (A+D, B+E, C+F) em 3 dias.
 const PLAN_3DAY = [
  {
   "day": "Dia A",
@@ -302,7 +302,7 @@ const PLAN_3DAY = [
 ];
 const PLAN_6DAY = [
  {
-  "day": "Segunda-feira",
+  "day": "Plano A",
   "muscle": "Costas/Bíceps",
   "exercises": [
    {
@@ -348,7 +348,7 @@ const PLAN_6DAY = [
   ]
  },
  {
-  "day": "Terça-feira",
+  "day": "Plano B",
   "muscle": "Peito/Ombro/Tríceps",
   "exercises": [
    {
@@ -410,7 +410,7 @@ const PLAN_6DAY = [
   ]
  },
  {
-  "day": "Quarta-feira",
+  "day": "Plano C",
   "muscle": "Pernas/Glúteo",
   "exercises": [
    {
@@ -464,7 +464,7 @@ const PLAN_6DAY = [
   ]
  },
  {
-  "day": "Quinta-feira",
+  "day": "Plano D",
   "muscle": "Costas/Bíceps",
   "exercises": [
    {
@@ -510,7 +510,7 @@ const PLAN_6DAY = [
   ]
  },
  {
-  "day": "Sexta-feira",
+  "day": "Plano E",
   "muscle": "Peito/Ombro/Tríceps",
   "exercises": [
    {
@@ -572,7 +572,7 @@ const PLAN_6DAY = [
   ]
  },
  {
-  "day": "Sábado",
+  "day": "Plano F",
   "muscle": "Pernas/Glúteo",
   "exercises": [
    {

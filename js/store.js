@@ -60,7 +60,7 @@ const Store = {
       if (!SB.token) await SB.signIn(email, password);
       const uid = SB.user.id;
       try { await SB.ins('profiles', { id: uid, name, meta: { rotation_index: 0 } }); } catch (e) { /* ja existe */ }
-      await SB.ins('plans', { user_id: uid, name: 'Rotação A/B/C', days: PLAN_3DAY, active: true });
+      await SB.ins('plans', { user_id: uid, name: 'Rotação A–F', days: PLAN_6DAY, active: true });
       this.mode = 'cloud'; this.user = { id: uid, name, email };
     } else {
       const users = this._ls('users') || [];
@@ -68,7 +68,7 @@ const Store = {
       const id = this.uid();
       users.push({ id, name, email, pass: await this.sha(password) });
       this._ls('users', users);
-      this._ls('data.' + id, { plan: { name: 'Rotação A/B/C', days: PLAN_3DAY }, logs: [], meta: { rotation_index: 0 } });
+      this._ls('data.' + id, { plan: { name: 'Rotação A–F', days: PLAN_6DAY }, logs: [], meta: { rotation_index: 0 } });
       this.mode = 'local'; this.user = { id, name, email };
     }
     this._persistSession();
@@ -85,7 +85,7 @@ const Store = {
       if (!prof || !prof.length) {
         const nm = (SB.user.user_metadata && SB.user.user_metadata.name) || email.split('@')[0];
         await SB.ins('profiles', { id: uid, name: nm, meta: { rotation_index: 0 } });
-        await SB.ins('plans', { user_id: uid, name: 'Rotação A/B/C', days: PLAN_3DAY, active: true });
+        await SB.ins('plans', { user_id: uid, name: 'Rotação A–F', days: PLAN_6DAY, active: true });
         prof = [{ id: uid, name: nm }];
       }
       this.mode = 'cloud'; this.user = { id: uid, name: prof[0].name, email };
@@ -118,12 +118,22 @@ const Store = {
   async getPlan() {
     if (this.mode === 'cloud') {
       const rows = await SB.sel('plans', '?user_id=eq.' + this.user.id + '&active=eq.true&select=id,name,days&limit=1');
-      if (rows && rows.length) return { id: rows[0].id, name: rows[0].name, days: rows[0].days };
-      const ins = await SB.ins('plans', { user_id: this.user.id, name: 'Rotação A/B/C', days: PLAN_3DAY, active: true });
+      if (rows && rows.length) {
+        const pl = { id: rows[0].id, name: rows[0].name, days: rows[0].days };
+        if (pl.name === 'Rotação A/B/C' && pl.days && pl.days.length === 3 && pl.days[0].day === 'Dia A') {
+          await SB.upd('plans', '?id=eq.' + pl.id, { name: 'Rotação A–F', days: PLAN_6DAY, updated_at: new Date().toISOString() });
+          return { id: pl.id, name: 'Rotação A–F', days: PLAN_6DAY };
+        }
+        return pl;
+      }
+      const ins = await SB.ins('plans', { user_id: this.user.id, name: 'Rotação A–F', days: PLAN_6DAY, active: true });
       return { id: ins[0].id, name: ins[0].name, days: ins[0].days };
     }
     const d = this._data();
-    if (!d.plan) { d.plan = { name: 'Rotação A/B/C', days: PLAN_3DAY }; this._saveData(d); }
+    if (!d.plan) { d.plan = { name: 'Rotação A–F', days: PLAN_6DAY }; this._saveData(d); }
+    else if (d.plan.name === 'Rotação A/B/C' && d.plan.days && d.plan.days.length === 3 && d.plan.days[0].day === 'Dia A') {
+      d.plan = { name: 'Rotação A–F', days: PLAN_6DAY }; this._saveData(d);
+    }
     return d.plan;
   },
 
