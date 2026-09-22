@@ -176,13 +176,7 @@ async function enterApp() {
   await loadDraft();
   S.todayDate = todayISO();
   const n = S.plan.days.length || 1;
-  S.todayIdx = computeTodayIdx();
-  // mantem o contador de rotação em sincronia com o histórico real
-  const synced = S.todayIdx + n * Math.max(0, Math.floor((S.meta.rotation_index || 0) / n));
-  if (synced !== S.meta.rotation_index) {
-    S.meta.rotation_index = synced;
-    try { await Store.saveMeta(S.meta); } catch (e) {}
-  }
+  S.todayIdx = computeTodayIdx(); // fixo por dia; anda so no dia seguinte ao treino feito
   if (S.draft && S.draft.logDate !== S.todayDate) { /* mantem rascunho de outro dia */ }
   renderHoje(); renderHistorico(); renderPlano(); renderConta(); renderCalendario(); renderRecados();
   showScreen('hoje');
@@ -205,27 +199,42 @@ function dayIdxFromLabel(lbl) {
   return i;
 }
 
-/*plano "atual": o do treino de hoje. Se o ultimo treino concluido foi hoje,
-  continua mostrando ele (o proximo so aparece amanha); se foi em outro dia,
-  abre no proximo da rotacao. Rascunho de hoje em andamento tem prioridade;
-  sem historico reconhecivel, usa a posicao salva.*/
+/*Plano "atual": fixo por dia. A rotação só anda no dia seguinte a um dia
+  treinado (treino concluído com rótulo reconhecido): concluir hoje não muda
+  o plano de hoje; se faltar num dia, o plano não anda. Rascunho de hoje em
+  andamento tem prioridade; sem histórico, usa a posição salva.*/
 function computeTodayIdx() {
   const days = S.plan.days, n = days.length || 1;
   const norm = x => ((x % n) + n) % n;
   if (S.draft && S.draft.logDate === S.todayDate && typeof S.draft.dayIdx === 'number')
     return norm(S.draft.dayIdx);
-  const logs = (S.logs || []).filter(l => l && l.log_date);
-  logs.sort((a, b) => String(a.log_date) < String(b.log_date) ? 1 : String(a.log_date) > String(b.log_date) ? -1 : 0);
-  // a escolha manual do plano vale mais que treino concluido antigo
-  const pickDate = S.meta && S.meta.plan_pick_date;
-  for (const l of logs) {
-    if (pickDate && String(l.log_date) < pickDate) continue;
-    const i = dayIdxFromLabel(l.day_label);
-    if (i < 0) continue;
-    if (String(l.log_date) === S.todayDate) return norm(i); // treino de hoje: mostra ele
-    return norm(i + 1); // proximo da rotacao
-  }
+  advanceRotation();
   return norm(S.meta.rotation_index || 0);
+}
+
+/*avança a rotação um passo por dia treinado anterior a hoje ainda não
+  contabilizado; salva a nova posição (melhor esforço, sem travar a tela).*/
+function advanceRotation() {
+  const days = S.plan.days, n = days.length || 1;
+  if (S.meta.rotation_anchor == null) {
+    // migração: começa a contar de ontem, sem pular por treino antigo
+    S.meta.rotation_anchor = todayISO(new Date(Date.now() - 864e5));
+  }
+  const anchor = String(S.meta.rotation_anchor);
+  const seen = {};
+  (S.logs || []).forEach(l => {
+    if (!l || !l.log_date) return;
+    const d = String(l.log_date);
+    if (d <= anchor || d >= S.todayDate) return;
+    if (dayIdxFromLabel(l.day_label) < 0) return;
+    seen[d] = 1;
+  });
+  const dates = Object.keys(seen).sort();
+  if (dates.length) {
+    S.meta.rotation_index = (S.meta.rotation_index || 0) + dates.length;
+    S.meta.rotation_anchor = dates[dates.length - 1];
+    try { if (Store && Store.saveMeta) Store.saveMeta(S.meta).catch(() => {}); } catch (e) {}
+  }
 }
 
 function renderHoje() {
@@ -279,6 +288,8 @@ function renderHoje() {
       const cyc = Math.max(0, Math.floor((S.meta.rotation_index || 0) / n));
       S.meta.rotation_index = cyc * n + (((+e.target.value) % n) + n) % n;
       S.meta.plan_pick_date = todayISO();
+      // a escolha de hoje passa a valer; treinos anteriores a hoje não andam a rotação
+      S.meta.rotation_anchor = todayISO(new Date(Date.now() - 864e5));
       await Store.saveMeta(S.meta);
     } catch (err) {}
     renderHoje();
@@ -464,18 +475,14 @@ async function finishWorkout() {
     notes: S.draft.notes || '' };
   try {
     await Store.saveLog(log);
-    const n = S.plan.days.length || 1;
-    const norm = x => (((x % n) + n) % n);
-    const concludedIdx = norm(S.todayIdx);
-    // posicao da rotacao = plano treinado (o proximo so vale a partir de amanha)
-    const cyc = Math.max(0, Math.floor((S.meta.rotation_index || 0) / n));
-    S.meta.rotation_index = cyc * n + concludedIdx;
-    await Store.saveMeta(S.meta);
     S.logs = await Store.getLogs();
     clearDraft();
-    S.todayIdx = computeTodayIdx(); // = plano treinado hoje
+    // o plano de hoje continua o mesmo; a rotação só anda amanhã
+    S.todayIdx = computeTodayIdx();
+    const nn = S.plan.days.length || 1;
+    const nx = (((S.todayIdx + 1) % nn) + nn) % nn;
     renderHoje(); renderHistorico();
-    savedToast('Treino salvo! Amanhã: ' + dayLabel(S.plan.days[norm(concludedIdx + 1)]) + ' 💪');
+    savedToast('Treino salvo! Amanhã: ' + dayLabel(S.plan.days[nx]) + ' 💪');
   } catch(e){ toast('Erro ao salvar: ' + e.message); }
 }
 
