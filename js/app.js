@@ -214,7 +214,10 @@ function computeTodayIdx() {
     return norm(S.draft.dayIdx);
   const logs = (S.logs || []).filter(l => l && l.log_date);
   logs.sort((a, b) => String(a.log_date) < String(b.log_date) ? 1 : String(a.log_date) > String(b.log_date) ? -1 : 0);
+  // a escolha manual do plano vale mais que treino concluido antigo
+  const pickDate = S.meta && S.meta.plan_pick_date;
   for (const l of logs) {
+    if (pickDate && String(l.log_date) < pickDate) continue;
     const i = dayIdxFromLabel(l.day_label);
     if (i >= 0) return norm(i + 1);
   }
@@ -264,7 +267,18 @@ function renderHoje() {
   });
 
   $('#hoje-logdate').addEventListener('change', e => { S.todayDate = e.target.value || todayISO(); ensureDraft(); renderHoje(); });
-  $('#hoje-daypick').addEventListener('change', e => { S.todayIdx = +e.target.value; clearDraft(); renderHoje(); });
+  $('#hoje-daypick').addEventListener('change', async e => {
+    S.todayIdx = +e.target.value; clearDraft();
+    // o app aprende a posicao na rotacao: passa a abrir daqui em diante
+    try {
+      const n = S.plan.days.length || 1;
+      const cyc = Math.max(0, Math.floor((S.meta.rotation_index || 0) / n));
+      S.meta.rotation_index = cyc * n + (((+e.target.value) % n) + n) % n;
+      S.meta.plan_pick_date = todayISO();
+      await Store.saveMeta(S.meta);
+    } catch (err) {}
+    renderHoje();
+  });
   $$('#hoje-content .ex').forEach(el => el.addEventListener('click', () => openExercise(+el.dataset.ex)));  $$('#hoje-content .yt-btn').forEach(b => b.addEventListener('click', e => {
     e.stopPropagation();
     const ex = S.plan.days[S.todayIdx].exercises[+b.dataset.yt];
