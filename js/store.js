@@ -236,6 +236,22 @@ const Store = {
   _data() { return this._ls('data.' + this.user.id) || { plan: null, logs: [], meta: { rotation_index: 0 } }; },
   _saveData(d) { this._ls('data.' + this.user.id, d); },
 
+  // Assinatura do plano salvo: identifica o template padrão antigo (antes da
+  // correção de 22/09/2026). Só migra se for idêntico ao template antigo —
+  // plano personalizado pelo usuário nunca é tocado.
+  _planSig(pl) {
+    try {
+      return JSON.stringify((pl.days || []).map(d => ({
+        day: d.day, m: d.muscle,
+        ex: (d.exercises || []).map(e => [e.nameA, e.nameB, e.sets, e.reps, e.technique])
+      })));
+    } catch (e) { return ''; }
+  },
+  _isOldTemplate(pl) {
+    return pl && pl.name === 'Rotação A–F' && pl.days && pl.days.length === 6 && this._planSig(pl) === PLAN_6DAY_SIG_V1;
+  },
+  _freshPlan() { return { name: 'Rotação A–F', days: JSON.parse(JSON.stringify(PLAN_6DAY)) }; },
+
   async getPlan() {
     if (this.mode === 'cloud') {
       try {
@@ -246,6 +262,11 @@ const Store = {
           if (pl.name === 'Rotação A/B/C' && pl.days && pl.days.length === 3 && pl.days[0].day === 'Dia A') {
             await SB.upd('plans', '?id=eq.' + pl.id, { name: 'Rotação A–F', days: PLAN_6DAY, updated_at: new Date().toISOString() });
             pl = { id: pl.id, name: 'Rotação A–F', days: PLAN_6DAY };
+          } else if (this._isOldTemplate(pl)) {
+            // template padrão antigo (exercícios incorretos) → substitui pelo corrigido
+            const fresh = this._freshPlan();
+            await SB.upd('plans', '?id=eq.' + pl.id, { days: fresh.days, updated_at: new Date().toISOString() });
+            pl = { id: pl.id, name: pl.name, days: fresh.days };
           }
         } else {
           const ins = await SB.ins('plans', { user_id: this.user.id, name: 'Rotação A–F', days: PLAN_6DAY, active: true });
@@ -264,6 +285,9 @@ const Store = {
     if (!d.plan) { d.plan = { name: 'Rotação A–F', days: PLAN_6DAY }; this._saveData(d); }
     else if (d.plan.name === 'Rotação A/B/C' && d.plan.days && d.plan.days.length === 3 && d.plan.days[0].day === 'Dia A') {
       d.plan = { name: 'Rotação A–F', days: PLAN_6DAY }; this._saveData(d);
+    }
+    else if (this._isOldTemplate(d.plan)) {
+      d.plan = this._freshPlan(); this._saveData(d);
     }
     return d.plan;
   },

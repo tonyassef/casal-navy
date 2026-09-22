@@ -1,5 +1,8 @@
 // Plano padrao: rotacao de 6 treinos (A/B/C/D/E/F), sem dias fixos.
 // PLAN_3DAY: modelo alternativo mesclado (A+D, B+E, C+F) em 3 dias.
+const PLAN_TPL_V = 2; // versão do template (correção 22/09/2026)
+const PLAN_6DAY_SIG_V1 = '[{"day":"Plano A","m":"Costas/Bíceps","ex":[["Puxada Alta na Máquina (Pulley Frontal)","Puxada Alta com Halteres (Pullover)","4","8-12","Drop-set na última série"],["Remada Baixa na Máquina (Remada Sentada)","Remada Curvada com Halteres","4","8-12","Rest-pause"],["Remada Cavalinho na Máquina","Remada Serrote com Halteres","3","10-15",""],["Rosca Direta na Máquina (Scott Machine)","Rosca Direta com Halteres","3","10-15","Super-set com Tríceps"],["Rosca Concentrada com Halteres","Rosca Martelo com Halteres","3","12-15",""]]},{"day":"Plano B","m":"Peito/Ombro/Tríceps","ex":[["Supino Inclinado na Máquina","Supino Inclinado com Halteres","4","8-12","Drop-set na última série"],["Supino Reto na Máquina","Supino Reto com Halteres","4","8-12","Rest-pause"],["Crucifixo na Máquina (Voador)","Crucifixo Inclinado com Halteres","3","10-15",""],["Desenvolvimento na Máquina (Shoulder Press)","Desenvolvimento Arnold com Halteres","4","8-12","Drop-set na última série"],["Elevação Lateral na Máquina","Elevação Lateral com Halteres","3","12-15",""],["Tríceps Pulley na Máquina (Barra Reta)","Tríceps Francês com Halteres","3","10-15","Super-set com Bíceps"],["Extensão de Tríceps na Máquina (Tríceps Máquina)","Coice com Halteres","3","12-15",""]]},{"day":"Plano C","m":"Pernas/Glúteo","ex":[["Leg Press 45°","Agachamento Goblet com Halteres","4","8-12","Drop-set na última série"],["Cadeira Extensora","Agachamento Búlgaro com Halteres","4","10-15","Rest-pause"],["Cadeira Flexora","Stiff com Halteres","4","10-15",""],["Cadeira Abdutora","Elevação Lateral deitado com Halteres","3","12-15",""],["Cadeira Adutora","Agachamento Sumô com Halteres","3","12-15",""],["Panturrilha Sentado na Máquina","Panturrilha em Pé com Halteres","4","15-20",""]]},{"day":"Plano D","m":"Costas/Bíceps","ex":[["Puxada Articulada na Máquina","Remada Unilateral com Halteres","4","8-12","Drop-set"],["Remada T na Máquina","Pullover com Halteres","4","8-12","Rest-pause"],["Pull Down na Máquina","Remada Inclinada com Halteres","3","10-15",""],["Rosca Scott na Máquina","Rosca Alternada com Halteres","3","10-15","Super-set com Tríceps"],["Rosca Inclinada pra Frente com Halteres","Rosca Martelo Inclinada com Halteres","3","12-15",""]]},{"day":"Plano E","m":"Peito/Ombro/Tríceps","ex":[["Supino Reto na Máquina","Supino Reto com Halteres","4","8-12","Drop-set na última série"],["Supino Declinado na Máquina","Supino Declinado com Halteres","4","8-12","Rest-pause"],["Crossover na Polia Alta","Crucifixo Reto com Halteres","3","10-15",""],["Desenvolvimento com Halteres (Sentado)","Desenvolvimento com Barra (Militar Press)","4","8-12","Drop-set na última série"],["Elevação Frontal com Halteres","Elevação Frontal na Polia","3","12-15",""],["Tríceps Testa na Máquina (Máquina de Tríceps)","Tríceps Testa com Halteres","3","10-15","Super-set com Bíceps"],["Tríceps Coice na Polia","Tríceps Coice com Halteres","3","12-15",""]]},{"day":"Plano F","m":"Pernas/Glúteo","ex":[["Agachamento no Hack Machine","Agachamento Frontal com Halteres","4","8-12","Drop-set na última série"],["Leg Press Horizontal","Passada com Halteres","4","8-12","Rest-pause"],["Mesa Flexora","Levantamento Terra Romeno com Halteres","4","10-15",""],["Glúteo Máquina (Coice)","Elevação Pélvica com Halteres","3","12-15",""],["Panturrilha em Pé na Máquina","Panturrilha Sentado com Halteres","4","15-20",""]]}]'; // assinatura do template v1 (exercícios incorretos) — usada na migração
+
 const PLAN_3DAY = [
  {
   "day": "Dia A",
@@ -14,7 +17,7 @@ const PLAN_3DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Remada Baixa na Máquina (Remada Sentada)",
+    "nameA": "Remada Curvada com Halteres",
     "nameB": "Remada Curvada com Halteres",
     "sets": "4",
     "reps": "8-12",
@@ -22,7 +25,7 @@ const PLAN_3DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Remada Cavalinho na Máquina",
+    "nameA": "Remada Curvada com Barra",
     "nameB": "Remada Serrote com Halteres",
     "sets": "3",
     "reps": "10-15",
@@ -34,7 +37,7 @@ const PLAN_3DAY = [
     "nameB": "Rosca Direta com Halteres",
     "sets": "3",
     "reps": "10-15",
-    "technique": "Super-set com Tríceps",
+    "technique": "Super-set com Tríceps Francês UNI",
     "rest": "3 min"
    },
    {
@@ -46,15 +49,15 @@ const PLAN_3DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Puxada Articulada na Máquina",
+    "nameA": "Puxada Articulada Alternada na Máquina",
     "nameB": "Remada Unilateral com Halteres",
     "sets": "4",
     "reps": "8-12",
-    "technique": "Drop-set",
+    "technique": "Alternada",
     "rest": "3 min"
    },
    {
-    "nameA": "Remada T na Máquina",
+    "nameA": "Remada Serrote com Halteres",
     "nameB": "Pullover com Halteres",
     "sets": "4",
     "reps": "8-12",
@@ -70,19 +73,19 @@ const PLAN_3DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Rosca Scott na Máquina",
+    "nameA": "Rosca Direta Barra EZ com Costa no Halter (trocar com scott)",
     "nameB": "Rosca Alternada com Halteres",
     "sets": "3",
     "reps": "10-15",
-    "technique": "Super-set com Tríceps",
+    "technique": "Super-set com Costa trapézio no Halter",
     "rest": "3 min"
    },
    {
-    "nameA": "Rosca Inclinada pra Frente com Halteres",
+    "nameA": "Rosca Inclinada com Halteres",
     "nameB": "Rosca Martelo Inclinada com Halteres",
     "sets": "3",
     "reps": "12-15",
-    "technique": "",
+    "technique": "Super-set com Tríceps Testa",
     "rest": "3 min"
    }
   ]
@@ -96,7 +99,7 @@ const PLAN_3DAY = [
     "nameB": "Supino Inclinado com Halteres",
     "sets": "4",
     "reps": "8-12",
-    "technique": "Drop-set na última série",
+    "technique": "Rest-pause",
     "rest": "3 min"
    },
    {
@@ -124,23 +127,23 @@ const PLAN_3DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Elevação Lateral na Máquina",
+    "nameA": "Elevação Lateral na Polia",
     "nameB": "Elevação Lateral com Halteres",
     "sets": "3",
     "reps": "12-15",
-    "technique": "",
+    "technique": "Drop-set",
     "rest": "3 min"
    },
    {
-    "nameA": "Tríceps Pulley na Máquina (Barra Reta)",
+    "nameA": "Tríceps testa na corda",
     "nameB": "Tríceps Francês com Halteres",
     "sets": "3",
     "reps": "10-15",
-    "technique": "Super-set com Bíceps",
+    "technique": "Super-set com Bíceps corda",
     "rest": "3 min"
    },
    {
-    "nameA": "Extensão de Tríceps na Máquina (Tríceps Máquina)",
+    "nameA": "Triceps na polia com corda",
     "nameB": "Coice com Halteres",
     "sets": "3",
     "reps": "12-15",
@@ -172,7 +175,7 @@ const PLAN_3DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Desenvolvimento com Halteres (Sentado)",
+    "nameA": "Desenvolvimento com Halteres (Sentado) c/ Elevação Lateral",
     "nameB": "Desenvolvimento com Barra (Militar Press)",
     "sets": "4",
     "reps": "8-12",
@@ -180,7 +183,7 @@ const PLAN_3DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Elevação Frontal com Halteres",
+    "nameA": "Elevação Frontal na Corda",
     "nameB": "Elevação Frontal na Polia",
     "sets": "3",
     "reps": "12-15",
@@ -188,7 +191,7 @@ const PLAN_3DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Tríceps Testa na Máquina (Máquina de Tríceps)",
+    "nameA": "Tríceps triangular unilateral na polia",
     "nameB": "Tríceps Testa com Halteres",
     "sets": "3",
     "reps": "10-15",
@@ -210,7 +213,7 @@ const PLAN_3DAY = [
   "muscle": "Pernas/Glúteo",
   "exercises": [
    {
-    "nameA": "Leg Press 45°",
+    "nameA": "Leg Extension Uni",
     "nameB": "Agachamento Goblet com Halteres",
     "sets": "4",
     "reps": "8-12",
@@ -218,7 +221,7 @@ const PLAN_3DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Cadeira Extensora",
+    "nameA": "Agachamento Smith",
     "nameB": "Agachamento Búlgaro com Halteres",
     "sets": "4",
     "reps": "10-15",
@@ -226,7 +229,7 @@ const PLAN_3DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Cadeira Flexora",
+    "nameA": "Leg Press 45°",
     "nameB": "Stiff com Halteres",
     "sets": "4",
     "reps": "10-15",
@@ -234,7 +237,7 @@ const PLAN_3DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Cadeira Abdutora",
+    "nameA": "Glúteos Hack",
     "nameB": "Elevação Lateral deitado com Halteres",
     "sets": "3",
     "reps": "12-15",
@@ -314,7 +317,7 @@ const PLAN_6DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Remada Baixa na Máquina (Remada Sentada)",
+    "nameA": "Remada Curvada com Halteres",
     "nameB": "Remada Curvada com Halteres",
     "sets": "4",
     "reps": "8-12",
@@ -322,7 +325,7 @@ const PLAN_6DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Remada Cavalinho na Máquina",
+    "nameA": "Remada Curvada com Barra",
     "nameB": "Remada Serrote com Halteres",
     "sets": "3",
     "reps": "10-15",
@@ -334,7 +337,7 @@ const PLAN_6DAY = [
     "nameB": "Rosca Direta com Halteres",
     "sets": "3",
     "reps": "10-15",
-    "technique": "Super-set com Tríceps",
+    "technique": "Super-set com Tríceps Francês UNI",
     "rest": "3 min"
    },
    {
@@ -356,7 +359,7 @@ const PLAN_6DAY = [
     "nameB": "Supino Inclinado com Halteres",
     "sets": "4",
     "reps": "8-12",
-    "technique": "Drop-set na última série",
+    "technique": "Rest-pause",
     "rest": "3 min"
    },
    {
@@ -384,23 +387,23 @@ const PLAN_6DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Elevação Lateral na Máquina",
+    "nameA": "Elevação Lateral na Polia",
     "nameB": "Elevação Lateral com Halteres",
     "sets": "3",
     "reps": "12-15",
-    "technique": "",
+    "technique": "Drop-set",
     "rest": "3 min"
    },
    {
-    "nameA": "Tríceps Pulley na Máquina (Barra Reta)",
+    "nameA": "Tríceps testa na corda",
     "nameB": "Tríceps Francês com Halteres",
     "sets": "3",
     "reps": "10-15",
-    "technique": "Super-set com Bíceps",
+    "technique": "Super-set com Bíceps corda",
     "rest": "3 min"
    },
    {
-    "nameA": "Extensão de Tríceps na Máquina (Tríceps Máquina)",
+    "nameA": "Triceps na polia com corda",
     "nameB": "Coice com Halteres",
     "sets": "3",
     "reps": "12-15",
@@ -414,7 +417,7 @@ const PLAN_6DAY = [
   "muscle": "Pernas/Glúteo",
   "exercises": [
    {
-    "nameA": "Leg Press 45°",
+    "nameA": "Leg Extension Uni",
     "nameB": "Agachamento Goblet com Halteres",
     "sets": "4",
     "reps": "8-12",
@@ -422,7 +425,7 @@ const PLAN_6DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Cadeira Extensora",
+    "nameA": "Agachamento Smith",
     "nameB": "Agachamento Búlgaro com Halteres",
     "sets": "4",
     "reps": "10-15",
@@ -430,7 +433,7 @@ const PLAN_6DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Cadeira Flexora",
+    "nameA": "Leg Press 45°",
     "nameB": "Stiff com Halteres",
     "sets": "4",
     "reps": "10-15",
@@ -438,7 +441,7 @@ const PLAN_6DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Cadeira Abdutora",
+    "nameA": "Glúteos Hack",
     "nameB": "Elevação Lateral deitado com Halteres",
     "sets": "3",
     "reps": "12-15",
@@ -468,15 +471,15 @@ const PLAN_6DAY = [
   "muscle": "Costas/Bíceps",
   "exercises": [
    {
-    "nameA": "Puxada Articulada na Máquina",
+    "nameA": "Puxada Articulada Alternada na Máquina",
     "nameB": "Remada Unilateral com Halteres",
     "sets": "4",
     "reps": "8-12",
-    "technique": "Drop-set",
+    "technique": "Alternada",
     "rest": "3 min"
    },
    {
-    "nameA": "Remada T na Máquina",
+    "nameA": "Remada Serrote com Halteres",
     "nameB": "Pullover com Halteres",
     "sets": "4",
     "reps": "8-12",
@@ -492,19 +495,19 @@ const PLAN_6DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Rosca Scott na Máquina",
+    "nameA": "Rosca Direta Barra EZ com Costa no Halter (trocar com scott)",
     "nameB": "Rosca Alternada com Halteres",
     "sets": "3",
     "reps": "10-15",
-    "technique": "Super-set com Tríceps",
+    "technique": "Super-set com Costa trapézio no Halter",
     "rest": "3 min"
    },
    {
-    "nameA": "Rosca Inclinada pra Frente com Halteres",
+    "nameA": "Rosca Inclinada com Halteres",
     "nameB": "Rosca Martelo Inclinada com Halteres",
     "sets": "3",
     "reps": "12-15",
-    "technique": "",
+    "technique": "Super-set com Tríceps Testa",
     "rest": "3 min"
    }
   ]
@@ -538,7 +541,7 @@ const PLAN_6DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Desenvolvimento com Halteres (Sentado)",
+    "nameA": "Desenvolvimento com Halteres (Sentado) c/ Elevação Lateral",
     "nameB": "Desenvolvimento com Barra (Militar Press)",
     "sets": "4",
     "reps": "8-12",
@@ -546,7 +549,7 @@ const PLAN_6DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Elevação Frontal com Halteres",
+    "nameA": "Elevação Frontal na Corda",
     "nameB": "Elevação Frontal na Polia",
     "sets": "3",
     "reps": "12-15",
@@ -554,7 +557,7 @@ const PLAN_6DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Tríceps Testa na Máquina (Máquina de Tríceps)",
+    "nameA": "Tríceps triangular unilateral na polia",
     "nameB": "Tríceps Testa com Halteres",
     "sets": "3",
     "reps": "10-15",
