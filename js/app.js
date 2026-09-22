@@ -30,6 +30,11 @@ function toast(msg, ms) {
   const t = $('#toast'); t.textContent = msg; t.classList.remove('hidden');
   clearTimeout(toastT); toastT = setTimeout(() => t.classList.add('hidden'), ms || 2600);
 }
+// toast apos escrita: se foi offline, avisa que vai sincronizar depois
+function savedToast(okMsg) {
+  if (Store.offlineWrite) { Store.offlineWrite = false; toast('Salvo offline 📶 — sincroniza sozinho quando a internet voltar.'); }
+  else if (okMsg) toast(okMsg);
+}
 function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classList.remove('hidden'); }
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
@@ -58,10 +63,41 @@ async function boot() {
       ? 'Modo nuvem: sua conta sincroniza entre aparelhos.'
       : 'Modo local: conta salva neste aparelho. Ative a nuvem em Conta → Banco de dados.';
   }
+  // offline -> online: sincroniza a fila sozinho
+  window.addEventListener('online', async () => {
+    refreshActive();
+    try {
+      const r = await Store.syncNow();
+      if (r.n > 0) {
+        S.plan = await Store.getPlan(); S.logs = await Store.getLogs(); S.meta = await Store.getMeta();
+        refreshActive();
+        toast(r.pending > 0 ? `Sincronizado ☁️ (${r.pending} ainda pendentes)` : 'Tudo sincronizado com a nuvem! ☁️✓');
+      }
+    } catch (e) {}
+  });
+  window.addEventListener('offline', () => {
+    toast('Sem internet 📶 — o app continua funcionando, tudo sincroniza depois.');
+    refreshActive();
+  });
+  // tenta enviar pendencias ao abrir
+  try {
+    const r = await Store.syncNow();
+    if (r.n > 0) { S.plan = await Store.getPlan(); S.logs = await Store.getLogs(); S.meta = await Store.getMeta(); refreshActive(); }
+  } catch (e) {}
   if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js').catch(()=>{}); }
 }
 
+function refreshActive() {
+  const s = S.screen || 'hoje';
+  if (s === 'hoje') renderHoje();
+  else if (s === 'historico') renderHistorico();
+  else if (s === 'plano') renderPlano();
+  else if (s === 'conta') renderConta();
+  else if (s === 'calendario') renderCalendario();
+}
+
 function showScreen(name) {
+  S.screen = name;
   $$('.screen').forEach(s => s.classList.add('hidden'));
   $('#screen-' + name).classList.remove('hidden');
   $$('#tabbar button').forEach(b => b.classList.toggle('active', b.dataset.screen === name));
@@ -88,11 +124,15 @@ function dayLabel(d) { return d.day + (d.muscle ? ' — ' + d.muscle : ''); }
 function renderHoje() {
   const days = S.plan.days;
   if (!days.length) { $('#hoje-content').innerHTML = '<div class="card">Nenhum dia no plano. Vá em Plano para montar.</div>'; return; }
+  const offline = (typeof navigator !== 'undefined' && navigator.onLine === false);
   const d = days[S.todayIdx];
   const draft = S.draft;
   const isDraftDay = draft && draft.dayIdx === S.todayIdx && draft.logDate === S.todayDate;
 
-  let h = `<div class="card"><div class="day-head">
+  let h = (offline
+    ? `<div class="card" style="border-color:var(--gold)"><div class="sub">📶 <b>Sem internet</b> — pode treinar normal, tudo sincroniza quando o sinal voltar.</div></div>`
+    : '')
+    + `<div class="card"><div class="day-head">
       <h3>${esc(dayLabel(d))}</h3><span class="badge">${esc(S.todayDate ? fmtBR(S.todayDate) : '')}</span>
     </div>
     <div class="sub">${d.exercises.length} exercícios • descanso padrão 3 min</div>
@@ -244,7 +284,7 @@ async function finishWorkout() {
     clearDraft();
     S.todayIdx = (((S.meta.rotation_index) % n) + n) % n;
     renderHoje(); renderHistorico();
-    toast('Treino salvo! Próximo: ' + dayLabel(S.plan.days[S.todayIdx]) + ' 💪');
+    savedToast('Treino salvo! Próximo: ' + dayLabel(S.plan.days[S.todayIdx]) + ' 💪');
   } catch(e){ toast('Erro ao salvar: ' + e.message); }
 }
 
@@ -378,7 +418,7 @@ function openLog(id) {
   $('#l-del').addEventListener('click', async () => {
     if (!confirm('Excluir este treino do histórico?')) return;
     await Store.deleteLog(id); S.logs = await Store.getLogs();
-    closeModal(); renderHistorico(); toast('Treino excluído.');
+    closeModal(); renderHistorico(); savedToast('Treino excluído.');
   });
 }
 
@@ -399,7 +439,7 @@ async function importSeed() {
   }
   S.meta.seed_imported = true; await Store.saveMeta(S.meta);
   S.logs = await Store.getLogs();
-  renderHistorico(); toast('Histórico importado! 📈 Veja sua progressão no gráfico.');
+  renderHistorico(); savedToast('Histórico importado! 📈 Veja sua progressão no gráfico.');
 }
 
 /* ================= CALENDARIO ================= */
@@ -539,7 +579,7 @@ function renderPlano() {
   $('#p-tpl3').addEventListener('click', () => { if (confirm('Substituir pelo modelo A/B/C mesclado (3 treinos)?')) { S.plan = { name:'Rotação A/B/C', days: JSON.parse(JSON.stringify(PLAN_3DAY)) }; renderPlano(); } });
   $('#p-save').addEventListener('click', async () => {
     try { const p = collect(); await Store.savePlan(p); S.plan = await Store.getPlan();
-      S.editPlan = false; renderPlano(); renderHoje(); toast('Plano atualizado! ✓'); }
+      S.editPlan = false; renderPlano(); renderHoje(); savedToast('Plano atualizado! ✓'); }
     catch(e){ toast('Erro: ' + e.message); }
   });
   $('#p-cancel').addEventListener('click', async () => { S.plan = await Store.getPlan(); S.editPlan = false; renderPlano(); });
@@ -578,7 +618,7 @@ function renderConta() {
 
   $('#c-spsave').addEventListener('click', async () => {
     S.meta.spotify_playlist = $('#c-spotify').value.trim();
-    try { await Store.saveMeta(S.meta); toast('Playlist salva! 🎵'); }
+    try { await Store.saveMeta(S.meta); savedToast('Playlist salva! 🎵'); }
     catch(e){ toast('Erro: ' + e.message); }
   });
 
@@ -616,7 +656,7 @@ function renderConta() {
       for (const l of data.logs) await Store.saveLog({ log_date: l.log_date, day_label: l.day_label, entries: l.entries, notes: l.notes||'' });
       if (data.meta) await Store.saveMeta(data.meta);
       S.plan = await Store.getPlan(); S.logs = await Store.getLogs(); S.meta = await Store.getMeta();
-      renderHoje(); renderHistorico(); renderPlano(); toast('Backup restaurado! ✓');
+      renderHoje(); renderHistorico(); renderPlano(); savedToast('Backup restaurado! ✓');
     } catch(err){ toast('Erro: ' + err.message); }
   });
   $('#c-logout').addEventListener('click', async () => {
@@ -640,6 +680,10 @@ $$('#screen-auth .tab').forEach(t => t.addEventListener('click', () => {
 }));
 async function authGo(fn) {
   $('#auth-err').textContent = '';
+  if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    $('#auth-err').textContent = 'Sem internet 📶 — conecte-se para entrar na primeira vez.';
+    return;
+  }
   try { await fn(); await enterApp(); }
   catch(e){ $('#auth-err').textContent = e.message || 'Erro. Tente de novo.'; }
 }

@@ -37,7 +37,15 @@ const Store = {
         this.user = { id: sess.userId, name: sess.name, email: sess.email };
         this._ls('session', { mode: 'cloud', userId: this.user.id, name: this.user.name, email: this.user.email, token: SB.token, refreshToken: SB.refreshToken });
         return true;
-      } catch (e) { this.signOut(); return false; }
+      } catch (e) {
+        // sem internet: entra com os dados em cache, sincroniza depois
+        if (typeof navigator !== 'undefined' && navigator.onLine === false && sess.userId) {
+          this.mode = 'cloud';
+          this.user = { id: sess.userId, name: sess.name, email: sess.email };
+          return true;
+        }
+        this.signOut(); return false;
+      }
     }
     if (sess.mode === 'local') {
       const users = this._ls('users') || [];
@@ -111,23 +119,80 @@ const Store = {
     this.user = null; this.mode = 'local';
   },
 
+  // ---------- offline: fila de sincronizacao + cache local (modo nuvem) ----------
+  // Sem internet, as escritas vao para uma fila (outbox) e os dados sao lidos
+  // de um cache local. Quando o sinal volta, syncNow() envia tudo sozinho.
+  offlineWrite: false,
+  _offlineQueue() { try { return JSON.parse(localStorage.getItem('casalnavy.outbox')) || []; } catch (e) { return []; } },
+  _setOutbox(q) { try { localStorage.setItem('casalnavy.outbox', JSON.stringify(q)); } catch (e) {} },
+  _queueOp(op) { const q = this._offlineQueue(); q.push(Object.assign({ _ts: Date.now() }, op)); this._setOutbox(q); },
+  _cache() { try { return JSON.parse(localStorage.getItem('casalnavy.cache.' + (this.user && this.user.id))) || null; } catch (e) { return null; } },
+  _setCache(c) { try { localStorage.setItem('casalnavy.cache.' + this.user.id, JSON.stringify(c)); } catch (e) {} },
+  // decide se um erro de rede deve ir para a fila (erro de HTTP real = problema de verdade, nao fila)
+  _queueable(e) {
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+    return !(e && e.message && /^HTTP \d+/.test(e.message));
+  },
+
+  async syncNow() {
+    if (this.mode !== 'cloud' || !this.user) return { n: 0, pending: 0 };
+    const q = this._offlineQueue();
+    if (!q.length) return { n: 0, pending: 0 };
+    const remaining = [];
+    let done = 0;
+    for (const op of q) {
+      try {
+        if (op.t === 'plan') {
+          const cur = await SB.sel('plans', '?user_id=eq.' + this.user.id + '&active=eq.true&select=id&limit=1');
+          const patch = { name: op.plan.name, days: op.plan.days, updated_at: new Date().toISOString() };
+          if (cur && cur.length) await SB.upd('plans', '?id=eq.' + cur[0].id, patch);
+          else await SB.ins('plans', Object.assign({ user_id: this.user.id, active: true }, patch));
+        } else if (op.t === 'log') {
+          const ex = await SB.sel('workout_logs', '?user_id=eq.' + this.user.id + '&log_date=eq.' + op.log.log_date + '&select=id&limit=1');
+          const row = { user_id: this.user.id, log_date: op.log.log_date, day_label: op.log.day_label, entries: op.log.entries, notes: op.log.notes || '' };
+          if (ex && ex.length) await SB.upd('workout_logs', '?id=eq.' + ex[0].id, row);
+          else await SB.ins('workout_logs', row);
+        } else if (op.t === 'dellog') {
+          const ex = await SB.sel('workout_logs', '?user_id=eq.' + this.user.id + '&log_date=eq.' + op.log_date + '&select=id&limit=1');
+          if (ex && ex.length) await SB.del('workout_logs', '?id=eq.' + ex[0].id);
+        } else if (op.t === 'meta') {
+          await SB.upd('profiles', '?id=eq.' + this.user.id, { meta: op.meta });
+        } else { continue; }
+        done++;
+      } catch (e) { remaining.push(op); break; }
+    }
+    this._setOutbox(remaining);
+    try { await this.getPlan(); await this.getLogs(); await this.getMeta(); } catch (e) {}
+    return { n: done, pending: remaining.length };
+  },
+
   // ---------- dados ----------
   _data() { return this._ls('data.' + this.user.id) || { plan: null, logs: [], meta: { rotation_index: 0 } }; },
   _saveData(d) { this._ls('data.' + this.user.id, d); },
 
   async getPlan() {
     if (this.mode === 'cloud') {
-      const rows = await SB.sel('plans', '?user_id=eq.' + this.user.id + '&active=eq.true&select=id,name,days&limit=1');
-      if (rows && rows.length) {
-        const pl = { id: rows[0].id, name: rows[0].name, days: rows[0].days };
-        if (pl.name === 'Rotação A/B/C' && pl.days && pl.days.length === 3 && pl.days[0].day === 'Dia A') {
-          await SB.upd('plans', '?id=eq.' + pl.id, { name: 'Rotação A–F', days: PLAN_6DAY, updated_at: new Date().toISOString() });
-          return { id: pl.id, name: 'Rotação A–F', days: PLAN_6DAY };
+      try {
+        const rows = await SB.sel('plans', '?user_id=eq.' + this.user.id + '&active=eq.true&select=id,name,days&limit=1');
+        let pl;
+        if (rows && rows.length) {
+          pl = { id: rows[0].id, name: rows[0].name, days: rows[0].days };
+          if (pl.name === 'Rotação A/B/C' && pl.days && pl.days.length === 3 && pl.days[0].day === 'Dia A') {
+            await SB.upd('plans', '?id=eq.' + pl.id, { name: 'Rotação A–F', days: PLAN_6DAY, updated_at: new Date().toISOString() });
+            pl = { id: pl.id, name: 'Rotação A–F', days: PLAN_6DAY };
+          }
+        } else {
+          const ins = await SB.ins('plans', { user_id: this.user.id, name: 'Rotação A–F', days: PLAN_6DAY, active: true });
+          pl = { id: ins[0].id, name: ins[0].name, days: ins[0].days };
         }
+        this._setCache(Object.assign(this._cache() || {}, { plan: pl }));
         return pl;
+      } catch (e) {
+        if (!this._queueable(e)) throw e;
+        const c = this._cache();
+        if (c && c.plan) return c.plan;
+        return { name: 'Rotação A–F', days: PLAN_6DAY };
       }
-      const ins = await SB.ins('plans', { user_id: this.user.id, name: 'Rotação A–F', days: PLAN_6DAY, active: true });
-      return { id: ins[0].id, name: ins[0].name, days: ins[0].days };
     }
     const d = this._data();
     if (!d.plan) { d.plan = { name: 'Rotação A–F', days: PLAN_6DAY }; this._saveData(d); }
@@ -139,14 +204,37 @@ const Store = {
 
   async savePlan(plan) {
     if (this.mode === 'cloud') {
-      const cur = await this.getPlan();
-      await SB.upd('plans', '?id=eq.' + cur.id, { name: plan.name, days: plan.days, updated_at: new Date().toISOString() });
-    } else { const d = this._data(); d.plan = plan; this._saveData(d); }
+      try {
+        const cur = await this.getPlan();
+        if (!cur.id) throw new Error('offline');
+        await SB.upd('plans', '?id=eq.' + cur.id, { name: plan.name, days: plan.days, updated_at: new Date().toISOString() });
+        const c = this._cache() || {};
+        c.plan = { id: cur.id, name: plan.name, days: plan.days };
+        this._setCache(c);
+      } catch (e) {
+        if (!this._queueable(e)) throw e;
+        const c = this._cache() || {};
+        c.plan = { name: plan.name, days: plan.days };
+        this._setCache(c);
+        this._queueOp({ t: 'plan', plan: { name: plan.name, days: plan.days } });
+        this.offlineWrite = true;
+      }
+      return;
+    }
+    const d = this._data(); d.plan = plan; this._saveData(d);
   },
 
   async getLogs() {
     if (this.mode === 'cloud') {
-      return await SB.sel('workout_logs', '?user_id=eq.' + this.user.id + '&select=id,log_date,day_label,entries,notes,created_at&order=log_date.desc,created_at.desc&limit=2000');
+      try {
+        const rows = await SB.sel('workout_logs', '?user_id=eq.' + this.user.id + '&select=id,log_date,day_label,entries,notes,created_at&order=log_date.desc,created_at.desc&limit=2000');
+        this._setCache(Object.assign(this._cache() || {}, { logs: rows }));
+        return rows;
+      } catch (e) {
+        if (!this._queueable(e)) throw e;
+        const c = this._cache();
+        return ((c && c.logs) || []).slice().sort((a, b) => (b.log_date || '').localeCompare(a.log_date || ''));
+      }
     }
     return (this._data().logs || []).slice().sort((a, b) => (b.log_date || '').localeCompare(a.log_date || ''));
   },
@@ -154,9 +242,34 @@ const Store = {
   async saveLog(log) {
     const row = { user_id: this.user.id, log_date: log.log_date, day_label: log.day_label, entries: log.entries, notes: log.notes || '' };
     if (this.mode === 'cloud') {
-      if (log.id) { await SB.upd('workout_logs', '?id=eq.' + log.id, row); return log.id; }
-      const ins = await SB.ins('workout_logs', row);
-      return ins[0].id;
+      try {
+        let id = log.id;
+        if (id && !String(id).startsWith('off_')) {
+          await SB.upd('workout_logs', '?id=eq.' + id, row);
+        } else {
+          // evita duplicar: se ja existe log nesta data, atualiza
+          const ex = await SB.sel('workout_logs', '?user_id=eq.' + this.user.id + '&log_date=eq.' + log.log_date + '&select=id&limit=1');
+          if (ex && ex.length) { id = ex[0].id; await SB.upd('workout_logs', '?id=eq.' + id, row); }
+          else { const ins = await SB.ins('workout_logs', row); id = ins[0].id; }
+        }
+        const c = this._cache() || {}; const logs = c.logs || [];
+        const full = Object.assign({}, log, { id });
+        const i = logs.findIndex(x => x.log_date === log.log_date);
+        if (i >= 0) logs[i] = full; else logs.unshift(full);
+        c.logs = logs; this._setCache(c);
+        return id;
+      } catch (e) {
+        if (!this._queueable(e)) throw e;
+        const c = this._cache() || {}; const logs = c.logs || [];
+        if (!log.id) log.id = 'off_' + Date.now().toString(36);
+        log.created_at = log.created_at || new Date().toISOString();
+        const i = logs.findIndex(x => x.log_date === log.log_date);
+        if (i >= 0) logs[i] = log; else logs.unshift(log);
+        c.logs = logs; this._setCache(c);
+        this._queueOp({ t: 'log', log: { log_date: log.log_date, day_label: log.day_label, entries: log.entries, notes: log.notes || '' } });
+        this.offlineWrite = true;
+        return log.id;
+      }
     }
     const d = this._data(); d.logs = d.logs || [];
     if (log.id) { const i = d.logs.findIndex(x => x.id === log.id); if (i >= 0) d.logs[i] = log; }
@@ -166,19 +279,59 @@ const Store = {
   },
 
   async deleteLog(id) {
-    if (this.mode === 'cloud') { await SB.del('workout_logs', '?id=eq.' + id); return; }
+    if (this.mode === 'cloud') {
+      try {
+        if (String(id).startsWith('off_')) throw new Error('offline');
+        await SB.del('workout_logs', '?id=eq.' + id);
+        const c = this._cache() || {};
+        c.logs = (c.logs || []).filter(x => String(x.id) !== String(id));
+        this._setCache(c);
+      } catch (e) {
+        if (!this._queueable(e)) throw e;
+        const c = this._cache() || {};
+        const gone = (c.logs || []).find(x => String(x.id) === String(id));
+        c.logs = (c.logs || []).filter(x => String(x.id) !== String(id));
+        this._setCache(c);
+        if (gone) {
+          // remove da fila qualquer criacao pendente desse log (efeito liquido: nada a sincronizar)
+          this._setOutbox(this._offlineQueue().filter(op => !(op.t === 'log' && op.log.log_date === gone.log_date)));
+          if (!String(id).startsWith('off_')) this._queueOp({ t: 'dellog', log_date: gone.log_date });
+        }
+        this.offlineWrite = true;
+      }
+      return;
+    }
     const d = this._data(); d.logs = (d.logs || []).filter(x => x.id !== id); this._saveData(d);
   },
 
   async getMeta() {
     if (this.mode === 'cloud') {
-      const r = await SB.sel('profiles', '?id=eq.' + this.user.id + '&select=meta&limit=1');
-      return (r && r[0] && r[0].meta) || { rotation_index: 0 };
+      try {
+        const r = await SB.sel('profiles', '?id=eq.' + this.user.id + '&select=meta&limit=1');
+        const meta = (r && r[0] && r[0].meta) || { rotation_index: 0 };
+        this._setCache(Object.assign(this._cache() || {}, { meta }));
+        return meta;
+      } catch (e) {
+        if (!this._queueable(e)) throw e;
+        const c = this._cache();
+        return (c && c.meta) || { rotation_index: 0 };
+      }
     }
     return this._data().meta || { rotation_index: 0 };
   },
   async saveMeta(meta) {
-    if (this.mode === 'cloud') { await SB.upd('profiles', '?id=eq.' + this.user.id, { meta }); return; }
+    if (this.mode === 'cloud') {
+      try {
+        await SB.upd('profiles', '?id=eq.' + this.user.id, { meta });
+        const c = this._cache() || {}; c.meta = meta; this._setCache(c);
+      } catch (e) {
+        if (!this._queueable(e)) throw e;
+        const c = this._cache() || {}; c.meta = meta; this._setCache(c);
+        this._queueOp({ t: 'meta', meta });
+        this.offlineWrite = true;
+      }
+      return;
+    }
     const d = this._data(); d.meta = meta; this._saveData(d);
   },
 
