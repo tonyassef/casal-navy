@@ -76,7 +76,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v17'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v18'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -148,8 +148,28 @@ async function boot() {
     if (r.n > 0) { S.plan = await Store.getPlan(); S.logs = await Store.getLogs(); S.meta = await Store.getMeta(); refreshActive(); }
   } catch (e) {}
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(()=>{});
-    // quando uma versão nova do app instalar, recarrega sozinho pra já rodar o código novo
+    navigator.serviceWorker.register('sw.js').then(reg => {
+      // achou versão nova instalando: avisa e recarrega sozinho pro código novo valer
+      const watchNew = () => {
+        const nw = reg.installing;
+        if (!nw || nw.__watched) return;
+        nw.__watched = true;
+        nw.addEventListener('statechange', () => {
+          if (nw.state === 'activated' && navigator.serviceWorker.controller) {
+            toast('Nova versão instalada — recarregando… 🔄');
+            setTimeout(() => location.reload(), 900);
+          }
+        });
+      };
+      reg.addEventListener('updatefound', watchNew);
+      watchNew();
+      // força a checagem a cada abertura (o navegador às vezes pula sozinho)
+      try { reg.update(); } catch (e) {}
+      // e de meia em meia hora com o app aberto: atualização entra sozinha
+      setInterval(() => { try { reg.update(); } catch (e) {} }, 30 * 60 * 1000);
+      S.swReg = reg;
+    }).catch(()=>{});
+    // quando uma versão nova do app assumir, recarrega sozinho pra já rodar o código novo
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (window.__swUpdated) return;
       window.__swUpdated = true;
@@ -1010,8 +1030,16 @@ function renderConta() {
     <button class="btn primary" id="c-spsave">Salvar playlist</button></div>`;
 
   h += `<button class="btn danger" id="c-logout">Sair da conta</button>`;
-  h += `<div class="sub" style="text-align:center;margin-top:10px">versão do app: ${APP_VERSION}</div>`;
+  h += `<div class="sub" style="text-align:center;margin-top:10px" id="app-ver">versão do app: ${APP_VERSION} — <span style="text-decoration:underline">toque para verificar atualização</span></div>`;
   $('#conta-content').innerHTML = h;
+  const av = $('#app-ver');
+  if (av) av.addEventListener('click', async () => {
+    toast('Verificando atualização… ⏳');
+    try {
+      const reg = (S.swReg) || await navigator.serviceWorker.getRegistration();
+      if (reg) await reg.update();
+    } catch (e) { toast('Não foi possível verificar agora.'); }
+  });
 
   $('#c-addprof').addEventListener('click', startAddProfile);
   $$('#conta-content [data-useprof]').forEach(b => b.addEventListener('click', async () => {
