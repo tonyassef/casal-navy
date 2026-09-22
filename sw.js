@@ -1,10 +1,11 @@
 /* Casal Navy — service worker: app shell offline-first */
-const CACHE = 'casal-navy-v1';
+const CACHE = 'casal-navy-v2';
 const ASSETS = [
   '.', 'index.html', 'manifest.json',
   'css/style.css',
   'js/plans.js', 'js/history_seed.js', 'js/sb.js', 'js/store.js', 'js/app.js',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png',
+  'img/watermark.jpg',
 ];
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));

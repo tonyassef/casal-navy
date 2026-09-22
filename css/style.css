@@ -9,7 +9,12 @@
 html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
   min-height:100vh;}
-#app{max-width:560px;margin:0 auto;min-height:100vh;position:relative;background:var(--bg);}
+/* marca d'água: foto do casal ao fundo, bem sutil */
+body::before{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:url('../img/watermark.jpg') center 30%/cover no-repeat;opacity:.15;}
+body::after{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
+  background:linear-gradient(180deg,rgba(6,13,26,.80),rgba(6,13,26,.93));}
+#app{max-width:560px;margin:0 auto;min-height:100vh;position:relative;z-index:1;background:transparent;}
 
 .screen{padding-bottom:calc(var(--tabbar-h) + 24px);}
 .content{padding:14px 14px 0;}
