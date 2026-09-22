@@ -65,12 +65,12 @@ const SB = {
   },
 
   // ---- PostgREST ----
-  async _rest(method, table, query, body) {
+  async _rest(method, table, query, body, prefer) {
     const headers = {
       'apikey': this.key,
       'Authorization': 'Bearer ' + this.token,
       'Content-Type': 'application/json',
-      'Prefer': method === 'POST' ? 'return=representation' : undefined,
+      'Prefer': prefer || (method === 'POST' ? 'return=representation' : undefined),
     };
     Object.keys(headers).forEach(k => headers[k] === undefined && delete headers[k]);
     const r = await fetch(this.url + '/rest/v1/' + table + (query || ''), {
@@ -84,6 +84,10 @@ const SB = {
   },
   sel(table, query) { return this._rest('GET', table, query); },
   ins(table, row) { return this._rest('POST', table, '', row); },
+  upsert(table, row, onConflict) {
+    return this._rest('POST', table, '?on_conflict=' + encodeURIComponent(onConflict), row,
+      'return=representation,resolution=merge-duplicates');
+  },
   upd(table, query, patch) { return this._rest('PATCH', table, query, patch); },
   del(table, query) { return this._rest('DELETE', table, query); },
 };

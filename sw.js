@@ -1,5 +1,5 @@
 /* Casal Navy — service worker: app shell offline-first */
-const CACHE = 'casal-navy-v9';
+const CACHE = 'casal-navy-v10';
 const ASSETS = [
   '.', 'index.html', 'manifest.json',
   'css/style.css',
@@ -21,4 +21,25 @@ self.addEventListener('fetch', e => {
     caches.open(CACHE).then(c => c.put(e.request, copy)).catch(()=>{});
     return res;
   }).catch(() => caches.match('index.html'))));
+});
+/* ---- Push notifications: recadinhos do casal ---- */
+self.addEventListener('push', e => {
+  let d = {};
+  try { d = e.data ? e.data.json() : {}; } catch (_) {}
+  const title = d.title || '💌 Novo recadinho';
+  e.waitUntil(self.registration.showNotification(title, {
+    body: d.body || 'Abre o app pra ver 💕',
+    icon: 'icons/icon-192.png',
+    badge: 'icons/icon-192.png',
+    tag: 'casal-recado',
+    renotify: true,
+    data: { url: './' },
+  }));
+});
+self.addEventListener('notificationclick', e => {
+  e.notification.close();
+  e.waitUntil(clients.matchAll({ type: 'window', includeUncontrolled: true }).then(ws => {
+    for (const w of ws) { try { if (new URL(w.url).pathname.includes('casal-navy')) return w.focus(); } catch (_) {} }
+    return clients.openWindow((e.notification.data && e.notification.data.url) || './');
+  }));
 });

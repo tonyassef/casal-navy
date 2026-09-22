@@ -1,6 +1,17 @@
 // Store: abstrai "local" (localStorage) e "nuvem" (Supabase).
 // A conta e sempre real: local = usuario+senha no aparelho;
 // nuvem = Supabase Auth com sincronizacao entre aparelhos.
+
+// Chave publica VAPID (push notifications). A privada fica no servidor (Edge Function).
+const VAPID_PUBLIC = 'BP-GdgwLWLXepDtU9g1OvQ_osVvgTuwHfrIUy6nladzWrsZKUEe1SE8slnY9FjIm6iyK8ESX4mxYuV7sPgLh86Q';
+function b64ToU8(s) {
+  const p = '='.repeat((4 - (s.length % 4)) % 4);
+  const b = (s + p).replace(/-/g, '+').replace(/_/g, '/');
+  const r = atob(b); const o = new Uint8Array(r.length);
+  for (let i = 0; i < r.length; i++) o[i] = r.charCodeAt(i);
+  return o;
+}
+
 const Store = {
   mode: 'local',          // 'local' | 'cloud'
   user: null,             // {id, name, email}
@@ -459,6 +470,42 @@ const Store = {
     if (this.mode === 'cloud') { try { await SB.del('couple_notes', '?id=eq.' + id); } catch (e) {} return; }
     const k = 'notes.' + this.user.id;
     this._ls(k, (this._ls(k) || []).filter(x => x.id !== id));
+  },
+
+  // ---------- push notifications (recadinhos) ----------
+  pushSupported() {
+    return ('Notification' in window) && ('PushManager' in window) && ('serviceWorker' in navigator);
+  },
+  pushPermission() { return ('Notification' in window) ? Notification.permission : 'denied'; },
+  // Garante a inscricao push deste aparelho salva na nuvem (chamar quando já permitido).
+  async ensurePushSubscription() {
+    if (this.mode !== 'cloud') return false;
+    if (!this.pushSupported() || Notification.permission !== 'granted') return false;
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      let sub = await reg.pushManager.getSubscription();
+      if (!sub) sub = await reg.pushManager.subscribe({
+        userVisibleOnly: true,
+        applicationServerKey: b64ToU8(VAPID_PUBLIC),
+      });
+      const j = sub.toJSON();
+      await SB.upsert('push_subscriptions', {
+        user_id: this.user.id, endpoint: j.endpoint,
+        subscription: j, updated_at: new Date().toISOString(),
+      }, 'user_id');
+      return true;
+    } catch (e) { return false; }
+  },
+  // Pede permissao ao usuario e ativa as notificacoes neste aparelho.
+  async enablePush() {
+    if (this.mode !== 'cloud') throw new Error('Entra com a sua conta pra ativar as notificações.');
+    if (!this.pushSupported()) throw new Error('Este aparelho/navegador não suporta notificações push. 📵');
+    let perm = Notification.permission;
+    if (perm === 'default') perm = await Notification.requestPermission();
+    if (perm !== 'granted') throw new Error('Notificações bloqueadas: libera nas configurações do aparelho e tenta de novo. 🔕');
+    const ok = await this.ensurePushSubscription();
+    if (!ok) throw new Error('Não consegui registrar este aparelho. Tenta de novo 😕');
+    return true;
   },
 
   // ---------- rascunho com auto-save (local imediato + nuvem) ----------

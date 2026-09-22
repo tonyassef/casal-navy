@@ -180,6 +180,8 @@ async function enterApp() {
   if (S.draft && S.draft.logDate !== S.todayDate) { /* mantem rascunho de outro dia */ }
   renderHoje(); renderHistorico(); renderPlano(); renderConta(); renderCalendario(); renderRecados();
   showScreen('hoje');
+  // Se as notificacoes ja foram permitidas, garante a inscricao push atualizada
+  if (Store.pushSupported() && Store.pushPermission() === 'granted') Store.ensurePushSubscription();
 }
 
 /* ================= HOJE ================= */
@@ -712,6 +714,23 @@ $('#btn-plan-edit').addEventListener('click', () => { S.editPlan = !S.editPlan; 
 
 /* ================= CONTA ================= */
 /* ================= RECADOS ================= */
+// Cartao de ativacao das notificacoes push (pra recado chegar na hora, com app fechado)
+function pushCard() {
+  if (Store.mode !== 'cloud') return '';
+  if (!Store.pushSupported())
+    return `<div class="card push-card"><div class="sub">📵 Este aparelho/navegador não suporta notificações push.</div></div>`;
+  const perm = Store.pushPermission();
+  const iosHint = `<div class="sub hint-ios">No iPhone: adiciona o app à Tela de Início primeiro (Safari → Compartilhar → Adicionar à Tela de Início) 📲</div>`;
+  if (perm === 'granted')
+    return `<div class="card push-card"><div class="sub">🔔 <b>Notificações ativadas neste aparelho</b> — os recadinhos chegam na hora, mesmo com o app fechado. 💌</div></div>`;
+  if (perm === 'denied')
+    return `<div class="card push-card"><div class="sub">🔕 Notificações bloqueadas neste aparelho. Libera nas configurações do navegador/celular e volta aqui.</div>${iosHint}</div>`;
+  return `<div class="card push-card">
+    <div class="sub">Quer receber os recadinhos <b>na hora</b>, mesmo com o app fechado?</div>
+    <button class="btn primary" id="push-enable">🔔 Ativar notificações</button>
+    ${iosHint}
+  </div>`;
+}
 function renderRecados() {
   const me = String(Store.user && Store.user.name || '').toLowerCase();
   const mine = (S.notes || []).filter(n => String(n.from_user_id) === String(Store.user && Store.user.id));
@@ -725,9 +744,10 @@ function renderRecados() {
     </div>`;
   };
   $('#recados-content').innerHTML = `
+    ${pushCard()}
     <div class="card note-form">
       <h3>Escrever recadinho 💕</h3>
-      <div class="sub">Ela(e) vai ver na hora, na aba Recados e no topo do treino de hoje.</div>
+      <div class="sub">Com as notificações ativadas, ela(e) recebe push no celular na hora 📲 — e o recado também aparece aqui e no topo do treino de hoje.</div>
       <label class="lbl">Para quem</label>
       <input id="note-to" placeholder="Ex: Eliza" value="${esc(partnerDefault())}" maxlength="40">
       <label class="lbl">Mensagem</label>
@@ -757,6 +777,18 @@ function renderRecados() {
     S.notes = await Store.getNotes();
     renderRecados(); renderHoje();
   }));
+  const pe = $('#push-enable');
+  if (pe) pe.addEventListener('click', async () => {
+    pe.disabled = true; pe.textContent = 'Ativando... 🔔';
+    try {
+      await Store.enablePush();
+      renderRecados();
+      toast('Notificações ativadas! 🔔💌');
+    } catch (e) {
+      pe.disabled = false; pe.textContent = '🔔 Ativar notificações';
+      toast(e.message || 'Não deu pra ativar 😕');
+    }
+  });
 }
 // banner do ultimo recado recebido no topo do Hoje
 function noteBanner() {
