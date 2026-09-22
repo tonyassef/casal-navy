@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v26'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v27'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -237,31 +237,41 @@ function dayIdxFromLabel(lbl) {
   treinado (treino concluído com rótulo reconhecido): concluir hoje não muda
   o plano de hoje; se faltar num dia, o plano não anda. Rascunho de hoje em
   andamento tem prioridade; sem histórico, usa a posição salva.*/
+/* Rotação por DATA: cada dia do calendário tem um plano fixo.
+   Base: 22/09/2026 = Plano D. 23/09=E, 24/09=F, 25/09=A, 26/09=B, ...
+   Se concluir um treino na data em vista, mostra o plano treinado. */
+function rotationBase() {
+  const n = (S.plan.days || []).length || 1;
+  const norm = x => ((x % n) + n) % n;
+  if (!S.meta.rotation_base_date) {
+    let bi = 3; // D no plano padrão A–F
+    const tl22 = (S.logs || []).find(l => String(l.log_date) === '2026-09-22' && dayIdxFromLabel(l.day_label) >= 0);
+    if (tl22) bi = norm(dayIdxFromLabel(tl22.day_label));
+    else {
+      const di = (S.plan.days || []).findIndex(d => /plano\s*d\b/i.test(d.name || ''));
+      if (di >= 0) bi = di;
+      else if (typeof S.meta.rotation_index === 'number') bi = norm(S.meta.rotation_index);
+    }
+    S.meta.rotation_base_date = '2026-09-22';
+    S.meta.rotation_base_idx = bi;
+    try { if (Store && Store.saveMeta) Store.saveMeta(S.meta).catch(() => {}); } catch (e) {}
+  }
+  return { date: String(S.meta.rotation_base_date), idx: norm(S.meta.rotation_base_idx || 0) };
+}
+
 function computeTodayIdx() {
   const days = S.plan.days, n = days.length || 1;
   const norm = x => ((x % n) + n) % n;
-  advanceRotation();
-  let pos = norm(S.meta.rotation_index || 0);
-  // se já concluiu um treino na data em vista, o plano dessa data é o treinado (repara a posição se preciso)
+  const base = rotationBase();
+  const b = new Date(base.date + 'T12:00:00');
+  const c = new Date(S.todayDate + 'T12:00:00');
+  const diff = Math.round((c - b) / 864e5);
+  let pos = norm(base.idx + diff);
+  // se já concluiu um treino na data em vista, o plano dessa data é o treinado
   const tl = latestTodayLog();
   if (tl) {
     const ti = norm(dayIdxFromLabel(tl.day_label));
-    const cyc = Math.max(0, Math.floor((S.meta.rotation_index || 0) / n));
-    let changed = false;
-    if (cyc * n + ti !== (S.meta.rotation_index || 0)) {
-      S.meta.rotation_index = cyc * n + ti;
-      changed = true;
-    }
-    // a âncora nunca pode ficar na data vista nem depois dela: senão o treino
-    // dessa data seria "engolido" e os dias seguintes não avançariam
-    // (ex.: ver o dia 22 treinado e depois o dia 24 travava no plano do dia 22)
-    if (!S.meta.rotation_anchor || String(S.meta.rotation_anchor) >= S.todayDate) {
-      const pv = new Date(S.todayDate + 'T12:00:00'); pv.setDate(pv.getDate() - 1);
-      S.meta.rotation_anchor = todayISO(pv);
-      changed = true;
-    }
-    if (changed) { try { if (Store && Store.saveMeta) Store.saveMeta(S.meta).catch(() => {}); } catch (e) {} }
-    pos = ti;
+    if (ti >= 0) pos = ti;
   }
   // rascunho só vale se for do plano do dia; se destoar (ex.: resto de versão antiga), descarta
   if (S.draft && S.draft.logDate === S.todayDate && typeof S.draft.dayIdx === 'number') {
@@ -279,31 +289,9 @@ function latestTodayLog() {
   return null;
 }
 
-/*avança a rotação um passo por dia treinado anterior a hoje ainda não
-  contabilizado; salva a nova posição (melhor esforço, sem travar a tela).*/
-function advanceRotation() {
-  const days = S.plan.days, n = days.length || 1;
-  if (S.meta.rotation_anchor == null) {
-    // migração: começa a contar de ontem, sem pular por treino antigo
-    S.meta.rotation_anchor = todayISO(new Date(Date.now() - 864e5));
-    try { if (Store && Store.saveMeta) Store.saveMeta(S.meta).catch(() => {}); } catch (e) {}
-  }
-  const anchor = String(S.meta.rotation_anchor);
-  const seen = {};
-  (S.logs || []).forEach(l => {
-    if (!l || !l.log_date) return;
-    const d = String(l.log_date);
-    if (d <= anchor || d >= S.todayDate) return;
-    if (dayIdxFromLabel(l.day_label) < 0) return;
-    seen[d] = 1;
-  });
-  const dates = Object.keys(seen).sort();
-  if (dates.length) {
-    S.meta.rotation_index = (S.meta.rotation_index || 0) + dates.length;
-    S.meta.rotation_anchor = dates[dates.length - 1];
-    try { if (Store && Store.saveMeta) Store.saveMeta(S.meta).catch(() => {}); } catch (e) {}
-  }
-}
+/* (legado v20–v26) rotação por conclusão foi substituída pela rotação por data;
+   mantida como no-op para não quebrar chamadas antigas. */
+function advanceRotation() {}
 
 function renderHoje() {
   const days = S.plan.days;
@@ -361,14 +349,11 @@ function renderHoje() {
   });
   $('#hoje-daypick').addEventListener('change', async e => {
     S.todayIdx = +e.target.value; clearDraft();
-    // o app aprende a posicao na rotacao: passa a abrir daqui em diante
+    // a escolha passa a ser a nova âncora: a rotação por data conta daqui em diante
     try {
       const n = S.plan.days.length || 1;
-      const cyc = Math.max(0, Math.floor((S.meta.rotation_index || 0) / n));
-      S.meta.rotation_index = cyc * n + (((+e.target.value) % n) + n) % n;
-      S.meta.plan_pick_date = todayISO();
-      // a escolha de hoje passa a valer; treinos anteriores a hoje não andam a rotação
-      S.meta.rotation_anchor = todayISO(new Date(Date.now() - 864e5));
+      S.meta.rotation_base_date = S.todayDate;
+      S.meta.rotation_base_idx = (((+e.target.value) % n) + n) % n;
       await Store.saveMeta(S.meta);
     } catch (err) {}
     renderHoje();
