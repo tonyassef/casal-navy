@@ -176,7 +176,13 @@ async function enterApp() {
   await loadDraft();
   S.todayDate = todayISO();
   const n = S.plan.days.length || 1;
-  S.todayIdx = ((S.meta.rotation_index || 0) % n + n) % n;
+  S.todayIdx = computeTodayIdx();
+  // mantem o contador de rotação em sincronia com o histórico real
+  const synced = S.todayIdx + n * Math.max(0, Math.floor((S.meta.rotation_index || 0) / n));
+  if (synced !== S.meta.rotation_index) {
+    S.meta.rotation_index = synced;
+    try { await Store.saveMeta(S.meta); } catch (e) {}
+  }
   if (S.draft && S.draft.logDate !== S.todayDate) { /* mantem rascunho de outro dia */ }
   renderHoje(); renderHistorico(); renderPlano(); renderConta(); renderCalendario(); renderRecados();
   showScreen('hoje');
@@ -186,6 +192,34 @@ async function enterApp() {
 
 /* ================= HOJE ================= */
 function dayLabel(d) { return d.day + (d.muscle ? ' — ' + d.muscle : ''); }
+
+/*acha o índice do dia do plano a partir do rótulo salvo no histórico ("Plano C — Pernas/Glúteo")*/
+function dayIdxFromLabel(lbl) {
+  const days = S.plan.days;
+  if (!lbl) return -1;
+  let i = days.findIndex(d => dayLabel(d) === lbl);
+  if (i < 0) {
+    const key = String(lbl).split(' — ')[0].trim();
+    i = days.findIndex(d => d.day === key);
+  }
+  return i;
+}
+
+/*plano "atual": o próximo da rotação a partir do último treino concluído.
+  Rascunho de hoje em andamento tem prioridade; sem histórico, usa o contador.*/
+function computeTodayIdx() {
+  const days = S.plan.days, n = days.length || 1;
+  const norm = x => ((x % n) + n) % n;
+  if (S.draft && S.draft.logDate === S.todayDate && typeof S.draft.dayIdx === 'number')
+    return norm(S.draft.dayIdx);
+  const logs = (S.logs || []).filter(l => l && l.log_date);
+  logs.sort((a, b) => String(a.log_date) < String(b.log_date) ? 1 : String(a.log_date) > String(b.log_date) ? -1 : 0);
+  for (const l of logs) {
+    const i = dayIdxFromLabel(l.day_label);
+    if (i >= 0) return norm(i + 1);
+  }
+  return norm(S.meta.rotation_index || 0);
+}
 
 function renderHoje() {
   const days = S.plan.days;
@@ -417,7 +451,13 @@ async function finishWorkout() {
     await Store.saveMeta(S.meta);
     S.logs = await Store.getLogs();
     clearDraft();
-    S.todayIdx = (((S.meta.rotation_index) % n) + n) % n;
+    // próximo plano a partir do treino recém-concluído (não do contador, que pode ter dessincronizado)
+    S.todayIdx = computeTodayIdx();
+    const synced = S.todayIdx + n * Math.max(0, Math.floor((S.meta.rotation_index || 0) / n));
+    if (synced !== S.meta.rotation_index) {
+      S.meta.rotation_index = synced;
+      try { await Store.saveMeta(S.meta); } catch (e) {}
+    }
     renderHoje(); renderHistorico();
     savedToast('Treino salvo! Próximo: ' + dayLabel(S.plan.days[S.todayIdx]) + ' 💪');
   } catch(e){ toast('Erro ao salvar: ' + e.message); }
