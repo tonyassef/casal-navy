@@ -1,17 +1,19 @@
 /* Casal Navy — service worker: app shell offline-first */
-const CACHE = 'casal-navy-v27';
+const CACHE = 'casal-navy-v28';
 const ASSETS = [
   '.', 'index.html', 'manifest.json',
   'css/style.css',
-  'js/plans.js', 'js/history_seed.js', 'js/sb.js', 'js/store.js', 'js/app.js',
+  'js/plans.js', 'js/history_seed.js', 'js/sb.js', 'js/store.js', 'js/app.js?v=28',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png',
   'img/watermark.jpg',
 ];
 self.addEventListener('install', e => {
   // instalação resiliente: se algum arquivo falhar/lentar no download, os demais
-  // entram no cache mesmo assim e a atualização não trava no meio do caminho
+  // entram no cache mesmo assim e a atualização não trava no meio do caminho.
+  // cache:'reload' ignora o cache HTTP do navegador: o cache da versão nova
+  // sempre recebe os arquivos fresquinhos do servidor, nunca cópia velha.
   e.waitUntil(caches.open(CACHE).then(c =>
-    Promise.allSettled(ASSETS.map(u => c.add(u).catch(() => null)))
+    Promise.allSettled(ASSETS.map(u => c.add(new Request(u, { cache: 'reload' })).catch(() => null)))
   ).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {

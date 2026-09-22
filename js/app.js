@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v27'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v28'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -1042,6 +1042,7 @@ function renderConta() {
 
   h += `<button class="btn danger" id="c-logout">Sair da conta</button>`;
   h += `<div class="sub" style="text-align:center;margin-top:10px" id="app-ver">versão do app: ${APP_VERSION} — <span style="text-decoration:underline">toque para verificar atualização</span></div>`;
+  h += `<div style="text-align:center;margin-top:8px"><button class="btn" id="force-upd" style="font-size:13px;padding:8px 16px">Forçar atualização 🔄</button></div>`;
   $('#conta-content').innerHTML = h;
   const av = $('#app-ver');
   if (av) av.addEventListener('click', async () => {
@@ -1050,6 +1051,19 @@ function renderConta() {
       const reg = (S.swReg) || await navigator.serviceWorker.getRegistration();
       if (reg) await reg.update();
     } catch (e) { toast('Não foi possível verificar agora.'); }
+  });
+  const fu = $('#force-upd');
+  if (fu) fu.addEventListener('click', async () => {
+    // força bruta sem perder nada: remove o service worker e os caches do app,
+    // recarrega tudo fresquinho da internet. Treinos, cargas e login ficam salvos.
+    toast('Forçando atualização… 🔄');
+    try {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map(r => r.unregister()));
+      const ks = await caches.keys();
+      await Promise.all(ks.filter(k => k.indexOf('casal-navy') === 0).map(k => caches.delete(k)));
+    } catch (e) {}
+    setTimeout(() => location.reload(), 600);
   });
 
   $('#c-addprof').addEventListener('click', startAddProfile);
