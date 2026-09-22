@@ -39,23 +39,31 @@ const Store = {
     if (sess.mode === 'cloud' && SB.ready) {
       this.mode = 'cloud';
       SB.token = sess.token; SB.refreshToken = sess.refreshToken;
+      const netErr = (e) => {
+        if (typeof navigator !== 'undefined' && navigator.onLine === false) return true;
+        return /failed to fetch|networkerror|network request failed|load failed|timed out|timeout|abort/i.test((e && e.message) || '');
+      };
+      const enterCached = () => {
+        // falha de rede: entra com os dados em cache em vez de deslogar; sincroniza depois
+        this.user = { id: sess.userId, name: sess.name, email: sess.email };
+        return true;
+      };
       try {
-        // valida/renova a sessao
-        const ok = await SB.refresh();
-        if (!ok && !SB.token) throw new Error('sessao expirada');
-        if (!SB.user) await SB.getUser();
+        // valida o token atual; se vencido tenta renovar; falha de rede nao desloga
+        try { await SB.getUser(); }
+        catch (e) {
+          if (netErr(e)) return enterCached();
+          const ok = await SB.refresh().catch(() => false);
+          if (!ok) throw new Error('sessao expirada');
+          await SB.getUser();
+        }
         if (!SB.user) throw new Error('sessao expirada');
         this.user = { id: sess.userId, name: sess.name, email: sess.email };
         this._persistSession();
         this._rememberSession();
         return true;
       } catch (e) {
-        // sem internet: entra com os dados em cache, sincroniza depois
-        if (typeof navigator !== 'undefined' && navigator.onLine === false && sess.userId) {
-          this.mode = 'cloud';
-          this.user = { id: sess.userId, name: sess.name, email: sess.email };
-          return true;
-        }
+        if (netErr(e) && sess.userId) return enterCached();
         const r = await this.signOut();
         return r === 'switched';
       }

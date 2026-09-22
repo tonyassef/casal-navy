@@ -1,5 +1,5 @@
 /* Casal Navy — service worker: app shell offline-first */
-const CACHE = 'casal-navy-v13';
+const CACHE = 'casal-navy-v14';
 const ASSETS = [
   '.', 'index.html', 'manifest.json',
   'css/style.css',
