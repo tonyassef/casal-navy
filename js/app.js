@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v24'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v25'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -242,15 +242,25 @@ function computeTodayIdx() {
   const norm = x => ((x % n) + n) % n;
   advanceRotation();
   let pos = norm(S.meta.rotation_index || 0);
-  // se já concluiu um treino hoje, o plano de hoje é o treinado (repara a posição se preciso)
+  // se já concluiu um treino na data em vista, o plano dessa data é o treinado (repara a posição se preciso)
   const tl = latestTodayLog();
   if (tl) {
     const ti = norm(dayIdxFromLabel(tl.day_label));
     const cyc = Math.max(0, Math.floor((S.meta.rotation_index || 0) / n));
+    let changed = false;
     if (cyc * n + ti !== (S.meta.rotation_index || 0)) {
       S.meta.rotation_index = cyc * n + ti;
-      try { if (Store && Store.saveMeta) Store.saveMeta(S.meta).catch(() => {}); } catch (e) {}
+      changed = true;
     }
+    // a âncora nunca pode ficar na data vista nem depois dela: senão o treino
+    // dessa data seria "engolido" e os dias seguintes não avançariam
+    // (ex.: ver o dia 22 treinado e depois o dia 24 travava no plano do dia 22)
+    if (!S.meta.rotation_anchor || String(S.meta.rotation_anchor) >= S.todayDate) {
+      const pv = new Date(S.todayDate + 'T12:00:00'); pv.setDate(pv.getDate() - 1);
+      S.meta.rotation_anchor = todayISO(pv);
+      changed = true;
+    }
+    if (changed) { try { if (Store && Store.saveMeta) Store.saveMeta(S.meta).catch(() => {}); } catch (e) {} }
     pos = ti;
   }
   // rascunho só vale se for do plano do dia; se destoar (ex.: resto de versão antiga), descarta
