@@ -41,6 +41,7 @@ function ytUrlFor(ex, variant) {
   const v = (raw || '').trim();
   if (v) return /^https?:\/\//i.test(v) ? v : 'https://' + v;
   const name = variant === 'B' && ex.nameB ? ex.nameB : ex.nameA;
+  try { const mv = (typeof EXERCISE_VIDEOS !== 'undefined' && EXERCISE_VIDEOS[name]) || ''; if (mv) return mv; } catch (e) {}
   return 'https://www.youtube.com/results?search_query=' + encodeURIComponent(name + ' exercício academia');
 }
 // super-set: "Super-set com <parceiro>" → nome do exercício parceiro ("" se não for super-set)
@@ -76,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v23'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v24'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
