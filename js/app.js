@@ -76,7 +76,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v19'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v20'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -297,8 +297,9 @@ function renderHoje() {
   const d = days[S.todayIdx];
   const draft = S.draft;
   const isDraftDay = draft && draft.dayIdx === S.todayIdx && draft.logDate === S.todayDate;
-  // se o treino de hoje já foi concluído, avisa — o plano do dia continua o mesmo
-  const doneToday = (S.todayDate === todayISO()) && !!latestTodayLog();
+  // se o treino da data em vista já foi concluído, avisa — o plano do dia continua o mesmo
+  const viewedDone = !!latestTodayLog();
+  const doneToday = (S.todayDate === todayISO()) && viewedDone;
 
   let h = profileBar() + noteBanner() + deloadBanner() + (offline
     ? `<div class="card" style="border-color:var(--gold)"><div class="sub">📶 <b>Sem internet</b> — pode treinar normal, tudo sincroniza quando o sinal voltar.</div></div>`
@@ -312,8 +313,8 @@ function renderHoje() {
     <label class="lbl">Treinar outro dia do plano</label>
     <select id="hoje-daypick">${days.map((x,i)=>`<option value="${i}" ${i===S.todayIdx?'selected':''}>${esc(dayLabel(x))}</option>`).join('')}</select>
   </div>`
-  + (doneToday
-    ? `<div class="card" style="border:2px solid #34c759"><div class="sub">✅ <b>Treino de hoje já concluído</b> — registrado no calendário com os pesos. O plano do dia continua o mesmo.</div></div>`
+  + (viewedDone
+    ? `<div class="card" style="border:2px solid #34c759"><div class="sub">✅ <b>${doneToday ? 'Treino de hoje já concluído' : 'Treino desse dia já concluído'}</b> — registrado no calendário com os pesos.${doneToday ? ' O plano do dia continua o mesmo.' : ''}</div></div>`
     : '');
 
   d.exercises.forEach((ex, i) => {
@@ -337,7 +338,12 @@ function renderHoje() {
     window.open((S.meta && S.meta.spotify_playlist) || DEFAULT_SPOTIFY, '_blank');
   });
 
-  $('#hoje-logdate').addEventListener('change', e => { S.todayDate = e.target.value || todayISO(); ensureDraft(); renderHoje(); });
+  $('#hoje-logdate').addEventListener('change', e => {
+    S.todayDate = e.target.value || todayISO();
+    S.todayIdx = computeTodayIdx(); // o plano acompanha a data escolhida
+    ensureDraft();
+    renderHoje();
+  });
   $('#hoje-daypick').addEventListener('change', async e => {
     S.todayIdx = +e.target.value; clearDraft();
     // o app aprende a posicao na rotacao: passa a abrir daqui em diante
