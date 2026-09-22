@@ -206,10 +206,33 @@ function dayIdxFromLabel(lbl) {
 function computeTodayIdx() {
   const days = S.plan.days, n = days.length || 1;
   const norm = x => ((x % n) + n) % n;
-  if (S.draft && S.draft.logDate === S.todayDate && typeof S.draft.dayIdx === 'number')
-    return norm(S.draft.dayIdx);
   advanceRotation();
-  return norm(S.meta.rotation_index || 0);
+  let pos = norm(S.meta.rotation_index || 0);
+  // se já concluiu um treino hoje, o plano de hoje é o treinado (repara a posição se preciso)
+  const tl = latestTodayLog();
+  if (tl) {
+    const ti = norm(dayIdxFromLabel(tl.day_label));
+    const cyc = Math.max(0, Math.floor((S.meta.rotation_index || 0) / n));
+    if (cyc * n + ti !== (S.meta.rotation_index || 0)) {
+      S.meta.rotation_index = cyc * n + ti;
+      try { if (Store && Store.saveMeta) Store.saveMeta(S.meta).catch(() => {}); } catch (e) {}
+    }
+    pos = ti;
+  }
+  // rascunho só vale se for do plano do dia; se destoar (ex.: resto de versão antiga), descarta
+  if (S.draft && S.draft.logDate === S.todayDate && typeof S.draft.dayIdx === 'number') {
+    if (norm(S.draft.dayIdx) !== pos) clearDraft();
+    else return pos;
+  }
+  return pos;
+}
+
+/*último treino concluído hoje com rótulo reconhecido (ignora "Importado da planilha").*/
+function latestTodayLog() {
+  const logs = (S.logs || []).filter(l => l && String(l.log_date) === S.todayDate);
+  logs.sort((a, b) => String(a.log_date) < String(b.log_date) ? 1 : String(a.log_date) > String(b.log_date) ? -1 : 0);
+  for (const l of logs) if (dayIdxFromLabel(l.day_label) >= 0) return l;
+  return null;
 }
 
 /*avança a rotação um passo por dia treinado anterior a hoje ainda não
@@ -219,6 +242,7 @@ function advanceRotation() {
   if (S.meta.rotation_anchor == null) {
     // migração: começa a contar de ontem, sem pular por treino antigo
     S.meta.rotation_anchor = todayISO(new Date(Date.now() - 864e5));
+    try { if (Store && Store.saveMeta) Store.saveMeta(S.meta).catch(() => {}); } catch (e) {}
   }
   const anchor = String(S.meta.rotation_anchor);
   const seen = {};
