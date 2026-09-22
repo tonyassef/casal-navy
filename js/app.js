@@ -4,6 +4,7 @@
 /* ---------- helpers ---------- */
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
+const DEFAULT_SPOTIFY = 'https://open.spotify.com/playlist/24d78VZmZtVvlZTVBs7vYA'; // playlist de treino do Tony
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const pad = n => String(n).padStart(2, '0');
 function todayISO(d) { d = d || new Date(); return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate()); }
@@ -113,15 +114,13 @@ function renderHoje() {
   });
 
   h += `<button class="btn primary" id="btn-finish">Concluir treino ✓</button>
-        <button class="btn spotify" id="btn-spotify">🎵 ${((S.meta||{}).spotify_playlist) ? 'Tocar playlist de treino' : 'Configurar playlist de treino 🎵'}</button>
+        <button class="btn spotify" id="btn-spotify">🎵 Tocar playlist de treino</button>
         <button class="btn" id="btn-discard" style="${isDraftDay?'':'display:none'}">Descartar rascunho</button>`;
   $('#hoje-content').innerHTML = h;
   $('#hoje-date').textContent = weekdayBR(S.todayDate);
 
   $('#btn-spotify').addEventListener('click', () => {
-    const url = (S.meta && S.meta.spotify_playlist) || '';
-    if (url) window.open(url, '_blank');
-    else { showScreen('conta'); renderConta(); toast('Cole o link da sua playlist do Spotify abaixo.'); }
+    window.open((S.meta && S.meta.spotify_playlist) || DEFAULT_SPOTIFY, '_blank');
   });
 
   $('#hoje-logdate').addEventListener('change', e => { S.todayDate = e.target.value || todayISO(); ensureDraft(); renderHoje(); });
@@ -571,7 +570,7 @@ function renderConta() {
 
   h += `<div class="card"><h3>🎵 Spotify</h3>
     <div class="sub">Um botão na tela de treino abre sua playlist de academia com 1 toque. (O navegador não permite tocar música sozinho ao abrir o app.)</div>
-    <label class="lbl">Link da playlist</label><input id="c-spotify" placeholder="https://open.spotify.com/playlist/..." value="${esc((S.meta&&S.meta.spotify_playlist)||'')}">
+    <label class="lbl">Link da playlist</label><input id="c-spotify" placeholder="https://open.spotify.com/playlist/..." value="${esc((S.meta&&S.meta.spotify_playlist)||DEFAULT_SPOTIFY)}">
     <button class="btn primary" id="c-spsave">Salvar playlist</button></div>`;
 
   h += `<button class="btn danger" id="c-logout">Sair da conta</button>`;
