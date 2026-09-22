@@ -43,6 +43,11 @@ function ytUrlFor(ex, variant) {
   const name = variant === 'B' && ex.nameB ? ex.nameB : ex.nameA;
   return 'https://www.youtube.com/results?search_query=' + encodeURIComponent(name + ' exercício academia');
 }
+// super-set: "Super-set com <parceiro>" → nome do exercício parceiro ("" se não for super-set)
+function ssPartner(technique) {
+  const m = /^super-?set com (.+)$/i.exec(String(technique || '').trim());
+  return m ? m[1].trim() : '';
+}
 // barra de perfis (Tony / Eliza)
 function profileBar() {
   const profiles = Store._savedSessions();
@@ -177,7 +182,7 @@ function renderHoje() {
   d.exercises.forEach((ex, i) => {
     const st = isDraftDay && draft.entries[i];
     const done = st && st.doneSets && st.doneSets.length && st.doneSets.every(Boolean) && st.doneSets.length >= parseInt(st.sets || ex.sets || 0);
-    const w = st && st.weight ? esc(st.weight) : '';
+    const w = st ? [st.weight, st.partnerWeight].filter(Boolean).map(esc).join(' + ') : '';
     h += `<div class="ex ${done?'done':''}" data-ex="${i}">
       <div class="num">${done ? '✓' : (i+1)}</div>
       <div class="info"><b>${esc(st && st.variant === 'B' && ex.nameB ? ex.nameB : ex.nameA)}</b>
@@ -218,19 +223,28 @@ function ensureDraft() {
 function openExercise(i) {
   ensureDraft();
   const ex = S.plan.days[S.todayIdx].exercises[i];
-  const st = S.draft.entries[i] || { variant: 'A', weight: '', doneSets: [], notes: '', sets: ex.sets, reps: ex.reps, technique: ex.technique, rest: ex.rest };
+  const st = S.draft.entries[i] || { variant: 'A', weight: '', partnerWeight: '', partnerReps: '', doneSets: [], notes: '', sets: ex.sets, reps: ex.reps, technique: ex.technique, rest: ex.rest };
   const nSets = Math.max(1, parseInt(st.sets || ex.sets || '3', 10) || 3);
   while (st.doneSets.length < nSets) st.doneSets.push(false);
   const name = st.variant === 'B' && ex.nameB ? ex.nameB : ex.nameA;
+  const partner = ssPartner(st.technique || ex.technique);
 
-  openModal(`
-    <h3>${esc(name)}</h3>
-    <div class="sub">${esc(S.plan.days[S.todayIdx].muscle || '')}</div>
-    <button class="btn" id="m-yt">▶️ Ver vídeo do exercício</button>
-    ${ex.nameB ? `<div class="ab-toggle">
-      <button class="${st.variant==='A'?'active':''}" data-v="A">Plano A<br><small>${esc(ex.nameA)}</small></button>
-      <button class="${st.variant==='B'?'active':''}" data-v="B">Plano B<br><small>${esc(ex.nameB)}</small></button>
-    </div>` : `<div class="kv"><span>Plano A</span><b>${esc(ex.nameA)}</b></div>`}
+  const loadHtml = partner ? `
+    <div class="row2">
+      <div><label class="lbl">Séries</label><input id="m-sets" value="${esc(st.sets || ex.sets || '')}"></div>
+      <div><label class="lbl">Descanso (seg)</label><input id="m-rest" type="number" value="${esc(st.rest || ex.rest || 180)}"></div>
+    </div>
+    <label class="lbl">Técnica</label><input id="m-tech" value="${esc(st.technique || ex.technique || '')}">
+    <div class="ss-head">1 — ${esc(name)}</div>
+    <div class="row2">
+      <div><label class="lbl">Carga (lbs) — ex: 70/55/40</label><input id="m-weight" inputmode="decimal" value="${esc(st.weight)}" placeholder="peso usado"></div>
+      <div><label class="lbl">Reps</label><input id="m-reps" value="${esc(st.reps || ex.reps || '')}"></div>
+    </div>
+    <div class="ss-head">2 — ${esc(partner)} <small>(super-set)</small></div>
+    <div class="row2">
+      <div><label class="lbl">Carga (lbs) — ex: 25/20/15</label><input id="m-weight2" inputmode="decimal" value="${esc(st.partnerWeight || '')}" placeholder="peso usado"></div>
+      <div><label class="lbl">Reps</label><input id="m-reps2" value="${esc(st.partnerReps || ex.reps || '')}"></div>
+    </div>` : `
     <div class="row2">
       <div><label class="lbl">Séries</label><input id="m-sets" value="${esc(st.sets || ex.sets || '')}"></div>
       <div><label class="lbl">Reps</label><input id="m-reps" value="${esc(st.reps || ex.reps || '')}"></div>
@@ -239,7 +253,17 @@ function openExercise(i) {
     <div class="row2">
       <div><label class="lbl">Descanso (seg)</label><input id="m-rest" type="number" value="${esc(st.rest || ex.rest || 180)}"></div>
       <div><label class="lbl">Carga (lbs) — ex: 70/55/40/25</label><input id="m-weight" inputmode="decimal" value="${esc(st.weight)}" placeholder="peso usado"></div>
-    </div>
+    </div>`;
+
+  openModal(`
+    <h3>${esc(name)}${partner ? ' <small style="color:var(--muted)">+ super-set</small>' : ''}</h3>
+    <div class="sub">${esc(S.plan.days[S.todayIdx].muscle || '')}</div>
+    <button class="btn" id="m-yt">▶️ Ver vídeo do exercício</button>
+    ${ex.nameB ? `<div class="ab-toggle">
+      <button class="${st.variant==='A'?'active':''}" data-v="A">Plano A<br><small>${esc(ex.nameA)}</small></button>
+      <button class="${st.variant==='B'?'active':''}" data-v="B">Plano B<br><small>${esc(ex.nameB)}</small></button>
+    </div>` : `<div class="kv"><span>Plano A</span><b>${esc(ex.nameA)}</b></div>`}
+    ${loadHtml}
     <label class="lbl">Séries concluídas</label>
     <div class="sets-row" id="m-setsrow">${st.doneSets.map((d,k)=>`<button class="set-chip ${d?'on':''}" data-k="${k}">${k+1}</button>`).join('')}</div>
     <button class="btn" id="m-timer">⏱ Descansar</button>
@@ -247,6 +271,13 @@ function openExercise(i) {
     <textarea id="m-notes" rows="2" placeholder="ex: dor no ombro, máquina ocupada...">${esc(st.notes)}</textarea>
     <button class="btn primary" id="m-save">Salvar exercício</button>
     <button class="btn" id="m-close">Voltar</button>`);
+
+  const readFields = () => {
+    st.sets=$('#m-sets').value; st.reps=$('#m-reps').value; st.technique=$('#m-tech').value;
+    st.rest=$('#m-rest').value; st.weight=$('#m-weight').value; st.notes=$('#m-notes').value;
+    const w2 = $('#m-weight2');
+    if (w2) { st.partnerWeight = w2.value; st.partnerReps = $('#m-reps2').value; st.partnerName = partner; }
+  };
 
   $$('#modal-card .ab-toggle button').forEach(b => b.addEventListener('click', () => {
     st.variant = b.dataset.v; S.draft.entries[i] = st; saveDraft(); openExercise(i);
@@ -262,13 +293,11 @@ function openExercise(i) {
     const k = +c.dataset.k; st.doneSets[k] = !st.doneSets[k]; c.classList.toggle('on', st.doneSets[k]);
   }));
   $('#m-timer').addEventListener('click', () => {
-    st.reps=$('#m-reps').value; st.technique=$('#m-tech').value; st.rest=$('#m-rest').value;
-    st.weight=$('#m-weight').value; st.notes=$('#m-notes').value;
+    readFields();
     S.draft.entries[i]=st; saveDraft(); openTimer(parseInt(st.rest,10)||180, ()=>openExercise(i));
   });
   $('#m-save').addEventListener('click', () => {
-    st.sets=$('#m-sets').value; st.reps=$('#m-reps').value; st.technique=$('#m-tech').value;
-    st.rest=$('#m-rest').value; st.weight=$('#m-weight').value; st.notes=$('#m-notes').value;
+    readFields();
     S.draft.entries[i]=st; saveDraft(); closeModal(); renderHoje(); toast('Exercício salvo ✓');
   });
   $('#m-close').addEventListener('click', closeModal);
@@ -310,7 +339,8 @@ async function finishWorkout() {
     const i = +k, ex = d.exercises[i], st = S.draft.entries[k];
     return { name: st.variant==='B' && ex.nameB ? ex.nameB : ex.nameA, variant: st.variant,
       sets: st.sets, reps: st.reps, technique: st.technique, rest: st.rest,
-      weight: st.weight, doneSets: st.doneSets.filter(Boolean).length, notes: st.notes };
+      weight: st.weight, partnerName: st.partnerName || '', partnerWeight: st.partnerWeight || '', partnerReps: st.partnerReps || '',
+      doneSets: st.doneSets.filter(Boolean).length, notes: st.notes };
   }).filter(e => e.weight || e.doneSets > 0 || e.notes);
   if (!entries.length) { toast('Marque ao menos um exercício antes de concluir.'); return; }
   const log = { log_date: S.draft.logDate, day_label: dayLabel(d), entries,
@@ -340,6 +370,8 @@ function kpiStats(days) {
       series += s;
       const m = maxLoad(e.weight);
       if (m != null) vol += m * s;
+      const m2 = maxLoad(e.partnerWeight);
+      if (m2 != null) vol += m2 * s;
     });
   });
   return { treinos, series, vol: Math.round(vol) };
@@ -390,7 +422,10 @@ function renderHistorico() {
 
   // preenche select de exercicios
   const names = {};
-  S.logs.forEach(l => l.entries.forEach(e => { const k = normName(e.name); if (k && !names[k]) names[k] = e.name; }));
+  S.logs.forEach(l => l.entries.forEach(e => {
+    const k = normName(e.name); if (k && !names[k]) names[k] = e.name;
+    const pk = normName(e.partnerName); if (pk && !names[pk]) names[pk] = e.partnerName;
+  }));
   (S.plan.days||[]).forEach(d => d.exercises.forEach(ex => {
     [ex.nameA, ex.nameB].forEach(nm => { const k = normName(nm); if (k && !names[k]) names[k] = nm; });
   }));
@@ -405,9 +440,11 @@ function renderHistorico() {
 function chartPoints(key) {
   const pts = [];
   S.logs.forEach(l => l.entries.forEach(e => {
-    if (normName(e.name) !== key) return;
-    const m = maxLoad(e.weight); if (m == null) return;
-    pts.push({ d: l.log_date, w: m });
+    let w = null;
+    if (normName(e.name) === key) w = maxLoad(e.weight);
+    else if (e.partnerName && normName(e.partnerName) === key) w = maxLoad(e.partnerWeight);
+    if (w == null) return;
+    pts.push({ d: l.log_date, w });
   }));
   pts.sort((a,b)=>a.d.localeCompare(b.d));
   // agrega por data (maior carga do dia)
@@ -449,6 +486,8 @@ function openLog(id) {
     h += `<div class="kv"><span>${esc(e.name)} <small style="color:var(--muted)">(${esc(e.variant||'A')})</small><br>
       <small style="color:var(--muted)">${esc(e.sets||'')}× ${esc(e.reps||'')} ${esc(e.technique||'')}</small></span>
       <b style="color:var(--gold)">${esc(e.weight||'—')}</b></div>`;
+    if (e.partnerName) h += `<div class="kv"><span>+ ${esc(e.partnerName)} <small style="color:var(--muted)">(super-set${e.partnerReps ? ' • ' + esc(e.partnerReps) + ' reps' : ''})</small></span>
+      <b style="color:var(--gold)">${esc(e.partnerWeight||'—')}</b></div>`;
     if (e.notes) h += `<div class="sub" style="margin:-2px 0 6px">📝 ${esc(e.notes)}</div>`;
   });
   if (l.notes) h += `<div class="sub">📝 ${esc(l.notes)}</div>`;

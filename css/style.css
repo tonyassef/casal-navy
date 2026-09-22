@@ -89,6 +89,7 @@ label.lbl{display:block;font-size:13px;color:var(--muted);margin:8px 0 4px;}
 .set-chip.on{background:var(--ok);border-color:var(--ok);color:#fff;}
 .row2{display:flex;gap:10px;}
 .row2>*{flex:1;}
+.ss-head{margin:12px 0 4px;font-weight:700;font-size:14px;color:var(--gold);}
 .kv{display:flex;justify-content:space-between;font-size:14px;padding:6px 0;border-bottom:1px solid var(--line);}
 .kv span:first-child{color:var(--muted);}
 
