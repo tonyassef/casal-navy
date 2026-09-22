@@ -76,7 +76,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v18'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v19'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -297,6 +297,8 @@ function renderHoje() {
   const d = days[S.todayIdx];
   const draft = S.draft;
   const isDraftDay = draft && draft.dayIdx === S.todayIdx && draft.logDate === S.todayDate;
+  // se o treino de hoje já foi concluído, avisa — o plano do dia continua o mesmo
+  const doneToday = (S.todayDate === todayISO()) && !!latestTodayLog();
 
   let h = profileBar() + noteBanner() + deloadBanner() + (offline
     ? `<div class="card" style="border-color:var(--gold)"><div class="sub">📶 <b>Sem internet</b> — pode treinar normal, tudo sincroniza quando o sinal voltar.</div></div>`
@@ -309,7 +311,10 @@ function renderHoje() {
     <input type="date" id="hoje-logdate" value="${esc(S.todayDate)}">
     <label class="lbl">Treinar outro dia do plano</label>
     <select id="hoje-daypick">${days.map((x,i)=>`<option value="${i}" ${i===S.todayIdx?'selected':''}>${esc(dayLabel(x))}</option>`).join('')}</select>
-  </div>`;
+  </div>`
+  + (doneToday
+    ? `<div class="card" style="border:2px solid #34c759"><div class="sub">✅ <b>Treino de hoje já concluído</b> — registrado no calendário com os pesos. O plano do dia continua o mesmo.</div></div>`
+    : '');
 
   d.exercises.forEach((ex, i) => {
     const st = isDraftDay && draft.entries[i];
