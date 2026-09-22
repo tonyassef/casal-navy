@@ -461,6 +461,53 @@ const Store = {
     this._ls(k, (this._ls(k) || []).filter(x => x.id !== id));
   },
 
+  // ---------- rascunho com auto-save (local imediato + nuvem) ----------
+  // O treino em andamento nunca se perde: cada alteracao salva na hora
+  // no aparelho e, com internet, tambem na nuvem (na meta do perfil).
+  async saveDraft(draft) {
+    const key = 'casalnavy.draft.' + this.user.id;
+    try { localStorage.setItem(key, JSON.stringify(draft)); } catch (e) {}
+    if (this.mode !== 'cloud' || !draft) return;
+    const now = Date.now();
+    if (now - (this._draftLast || 0) < 2000) {
+      clearTimeout(this._draftT);
+      this._draftT = setTimeout(() => this.saveDraft(Store._pendingDraft || draft), 2200);
+      this._pendingDraft = draft;
+      return;
+    }
+    this._draftLast = now; this._pendingDraft = null;
+    try {
+      const meta = (await this.getMeta()) || {};
+      meta.draft = draft;
+      await this.saveMeta(meta);
+    } catch (e) { /* tenta de novo na proxima alteracao */ }
+  },
+  async loadDraft() {
+    const key = 'casalnavy.draft.' + this.user.id;
+    let local = null;
+    try { local = JSON.parse(localStorage.getItem(key)); } catch (e) {}
+    if (this.mode !== 'cloud') return local;
+    try {
+      const meta = await this.getMeta();
+      const cloud = meta && meta.draft;
+      if (cloud && cloud.dayIdx !== undefined) {
+        const lt = (local && local.updatedAt) || 0, ct = cloud.updatedAt || 0;
+        return ct >= lt ? cloud : local;
+      }
+    } catch (e) {}
+    return local;
+  },
+  async clearDraft() {
+    const key = 'casalnavy.draft.' + this.user.id;
+    try { localStorage.removeItem(key); } catch (e) {}
+    clearTimeout(this._draftT); this._pendingDraft = null;
+    if (this.mode !== 'cloud') return;
+    try {
+      const meta = (await this.getMeta()) || {};
+      if (meta.draft) { delete meta.draft; await this.saveMeta(meta); }
+    } catch (e) {}
+  },
+
   saveSbConfig(url, key) {
     this.cfg = { url: url.trim().replace(/\/+$/, ''), key: key.trim() };
     this._ls('sbconfig', this.cfg);

@@ -104,10 +104,15 @@ const NOTE_IDEAS = [
   'Treina fofo que eu te amo forte 🥰',
 ];
 
-function draftKey() { return 'casalnavy.draft.' + Store.user.id; }
-function loadDraft() { try { S.draft = JSON.parse(localStorage.getItem(draftKey())); } catch(e){ S.draft = null; } }
-function saveDraft() { localStorage.setItem(draftKey(), JSON.stringify(S.draft)); }
-function clearDraft() { localStorage.removeItem(draftKey()); S.draft = null; }
+/* rascunho com auto-save: salva no aparelho na hora e na nuvem logo em seguida.
+   Nenhum valor digitado se perde, mesmo fechando o app no meio do treino. */
+async function loadDraft() { S.draft = await Store.loadDraft(); }
+function saveDraft() {
+  if (!S.draft) return;
+  S.draft.updatedAt = Date.now();
+  Store.saveDraft(S.draft); // fire-and-forget: local imediato, nuvem com debounce
+}
+function clearDraft() { S.draft = null; Store.clearDraft(); }
 
 /* ---------- boot ---------- */
 async function boot() {
@@ -168,7 +173,7 @@ async function enterApp() {
   S.logs = await Store.getLogs();
   S.meta = await Store.getMeta();
   try { S.notes = await Store.getNotes(); } catch (e) { S.notes = []; }
-  loadDraft();
+  await loadDraft();
   S.todayDate = todayISO();
   const n = S.plan.days.length || 1;
   S.todayIdx = ((S.meta.rotation_index || 0) % n + n) % n;
@@ -313,7 +318,13 @@ function openExercise(i) {
   });
   $$('#m-setsrow .set-chip').forEach(c => c.addEventListener('click', () => {
     const k = +c.dataset.k; st.doneSets[k] = !st.doneSets[k]; c.classList.toggle('on', st.doneSets[k]);
+    S.draft.entries[i] = st; saveDraft(); // marca série e já salva
   }));
+  // AUTO-SAVE: qualquer valor digitado salva na hora (aparelho + nuvem).
+  // Fechar o app no meio do exercício não apaga mais nada.
+  $$('#modal-card input, #modal-card textarea').forEach(el => {
+    el.addEventListener('input', () => { readFields(); S.draft.entries[i] = st; saveDraft(); });
+  });
   $('#m-timer').addEventListener('click', () => {
     readFields();
     S.draft.entries[i]=st; saveDraft(); openTimer(parseInt(st.rest,10)||180, ()=>openExercise(i));
@@ -322,7 +333,10 @@ function openExercise(i) {
     readFields();
     S.draft.entries[i]=st; saveDraft(); closeModal(); renderHoje(); toast('Exercício salvo ✓');
   });
-  $('#m-close').addEventListener('click', closeModal);
+  $('#m-close').addEventListener('click', () => {
+    readFields(); // voltar também salva o que foi digitado
+    S.draft.entries[i] = st; saveDraft(); closeModal(); renderHoje();
+  });
 }
 
 /* timer de descanso */
