@@ -255,9 +255,9 @@ const Store = {
   _data() { return this._ls('data.' + this.user.id) || { plan: null, logs: [], meta: { rotation_index: 0 } }; },
   _saveData(d) { this._ls('data.' + this.user.id, d); },
 
-  // Assinatura do plano salvo: identifica o template padrão antigo (antes da
-  // correção de 22/09/2026). Só migra se for idêntico ao template antigo —
-  // plano personalizado pelo usuário nunca é tocado.
+  // Assinatura do plano salvo: identifica um template padrão antigo (antes do
+  // plano avançado A–F de 22/09/2026). Só migra se for idêntico a um template
+  // antigo — plano personalizado pelo usuário nunca é tocado.
   _planSig(pl) {
     try {
       return JSON.stringify((pl.days || []).map(d => ({
@@ -267,7 +267,9 @@ const Store = {
     } catch (e) { return ''; }
   },
   _isOldTemplate(pl) {
-    return pl && pl.name === 'Rotação A–F' && pl.days && pl.days.length === 6 && this._planSig(pl) === PLAN_6DAY_SIG_V1;
+    if (!(pl && pl.name === 'Rotação A–F' && pl.days && pl.days.length === 6)) return false;
+    const s = this._planSig(pl);
+    return s === PLAN_6DAY_SIG_V1 || s === PLAN_6DAY_SIG_V2;
   },
   _isOld3DayTemplate(pl) {
     return pl && pl.name === 'Rotação A/B/C' && pl.days && pl.days.length === 3 && this._planSig(pl) === PLAN_3DAY_SIG_V1;
@@ -285,7 +287,7 @@ const Store = {
             await SB.upd('plans', '?id=eq.' + pl.id, { name: 'Rotação A–F', days: PLAN_6DAY, updated_at: new Date().toISOString() });
             pl = { id: pl.id, name: 'Rotação A–F', days: PLAN_6DAY };
           } else if (this._isOldTemplate(pl)) {
-            // template padrão antigo (exercícios incorretos) → substitui pelo corrigido
+            // template padrão antigo → substitui pelo plano avançado A–F (v22)
             const fresh = this._freshPlan();
             await SB.upd('plans', '?id=eq.' + pl.id, { days: fresh.days, updated_at: new Date().toISOString() });
             pl = { id: pl.id, name: pl.name, days: fresh.days };
