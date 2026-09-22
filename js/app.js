@@ -195,7 +195,7 @@ function renderHoje() {
   const draft = S.draft;
   const isDraftDay = draft && draft.dayIdx === S.todayIdx && draft.logDate === S.todayDate;
 
-  let h = profileBar() + noteBanner() + (offline
+  let h = profileBar() + noteBanner() + deloadBanner() + (offline
     ? `<div class="card" style="border-color:var(--gold)"><div class="sub">📶 <b>Sem internet</b> — pode treinar normal, tudo sincroniza quando o sinal voltar.</div></div>`
     : '')
     + `<div class="card"><div class="day-head">
@@ -238,6 +238,7 @@ function renderHoje() {
   }));
   wireProfileBar();
   wireNoteBanner();
+  wireDeloadBanner();
   $('#btn-finish').addEventListener('click', finishWorkout);
   $('#btn-discard').addEventListener('click', () => { clearDraft(); renderHoje(); toast('Rascunho descartado.'); });
 }
@@ -249,10 +250,35 @@ function ensureDraft() {
   }
 }
 
+// pesos do último treino concluído deste mesmo dia do plano.
+// Quando o treino é finalizado, o próximo treino desse plano já abre
+// com as cargas usadas da última vez — é só ajustar se for aumentar.
+function lastLoadsFor(ex, dayLbl) {
+  const targets = [normName(ex.nameA), normName(ex.nameB)].filter(Boolean);
+  if (!targets.length) return null;
+  for (const l of (S.logs || [])) {
+    if (l.day_label !== dayLbl) continue;
+    for (const e of (l.entries || [])) {
+      if (targets.includes(normName(e.name))) {
+        return { weight: e.weight || '', partnerWeight: e.partnerWeight || '', partnerReps: e.partnerReps || '' };
+      }
+    }
+  }
+  return null;
+}
 function openExercise(i) {
   ensureDraft();
   const ex = S.plan.days[S.todayIdx].exercises[i];
-  const st = S.draft.entries[i] || { variant: 'A', weight: '', partnerWeight: '', partnerReps: '', doneSets: [], notes: '', sets: ex.sets, reps: ex.reps, technique: ex.technique, rest: ex.rest };
+  let st = S.draft.entries[i];
+  let prefilled = false;
+  if (!st) {
+    st = { variant: 'A', weight: '', partnerWeight: '', partnerReps: '', doneSets: [], notes: '', sets: ex.sets, reps: ex.reps, technique: ex.technique, rest: ex.rest };
+    const last = lastLoadsFor(ex, dayLabel(S.plan.days[S.todayIdx]));
+    if (last && (last.weight || last.partnerWeight)) {
+      st.weight = last.weight; st.partnerWeight = last.partnerWeight; st.partnerReps = last.partnerReps;
+      prefilled = true;
+    }
+  }
   const nSets = Math.max(1, parseInt(st.sets || ex.sets || '3', 10) || 3);
   while (st.doneSets.length < nSets) st.doneSets.push(false);
   const name = st.variant === 'B' && ex.nameB ? ex.nameB : ex.nameA;
@@ -293,6 +319,7 @@ function openExercise(i) {
       <button class="${st.variant==='B'?'active':''}" data-v="B">Plano B<br><small>${esc(ex.nameB)}</small></button>
     </div>` : `<div class="kv"><span>Plano A</span><b>${esc(ex.nameA)}</b></div>`}
     ${loadHtml}
+    ${prefilled ? '<div class="sub" style="color:var(--gold)">↩ pesos do seu último treino deste plano — ajusta se for aumentar 💪</div>' : ''}
     <label class="lbl">Séries concluídas</label>
     <div class="sets-row" id="m-setsrow">${st.doneSets.map((d,k)=>`<button class="set-chip ${d?'on':''}" data-k="${k}">${k+1}</button>`).join('')}</div>
     <button class="btn" id="m-timer">⏱ Descansar</button>
@@ -803,6 +830,50 @@ function noteBanner() {
 function wireNoteBanner() {
   const g = $('#note-goto');
   if (g) g.addEventListener('click', () => { showScreen('recados'); renderRecados(); });
+}
+
+/* ---------- semana de regeneração (deload a cada 8 semanas) ---------- */
+// Conta 8 semanas desde o início do ciclo; quando vence, mostra um aviso
+// no topo do treino sugerindo uma semana leve (~-25% de carga).
+function deloadInfo() {
+  const meta = S.meta || {};
+  if (!meta.deload_start) {
+    meta.deload_start = todayISO();
+    try { Store.saveMeta(meta); } catch (e) {}
+  }
+  const d0 = new Date(meta.deload_start + 'T12:00:00').getTime();
+  const days = Math.floor((Date.now() - d0) / 864e5);
+  let snoozed = false;
+  if (meta.deload_snooze) {
+    const ds = new Date(meta.deload_snooze + 'T12:00:00').getTime();
+    snoozed = Math.floor((Date.now() - ds) / 864e5) < 7;
+  }
+  return { due: days >= 56 && !snoozed, weeks: Math.floor(days / 7) };
+}
+function deloadBanner() {
+  const info = deloadInfo();
+  if (!info.due) return '';
+  return `<div class="card" style="border-color:var(--gold)">
+    <div class="day-head"><h3>💆 Semana de regeneração</h3><span class="badge gold">ciclo de 8 semanas</span></div>
+    <div class="sub">Já faz <b>${info.weeks} semanas</b> de treino pesado. Que tal uma semana mais leve?
+    Diminui as cargas em <b>~25%</b>, capricha na técnica e deixa o corpo se recuperar. 💙</div>
+    <div class="row2">
+      <button class="btn primary" id="btn-deload-done">✓ Fiz a semana leve</button>
+      <button class="btn" id="btn-deload-later">Lembrar depois</button>
+    </div></div>`;
+}
+function wireDeloadBanner() {
+  const done = $('#btn-deload-done'), later = $('#btn-deload-later');
+  if (done) done.addEventListener('click', async () => {
+    S.meta.deload_start = todayISO(); delete S.meta.deload_snooze;
+    try { await Store.saveMeta(S.meta); } catch (e) {}
+    renderHoje(); toast('Ciclo reiniciado — te aviso de novo em 8 semanas 💆');
+  });
+  if (later) later.addEventListener('click', async () => {
+    S.meta.deload_snooze = todayISO();
+    try { await Store.saveMeta(S.meta); } catch (e) {}
+    renderHoje(); toast('Combinado, te lembro em 1 semana ⏰');
+  });
 }
 
 function renderConta() {
