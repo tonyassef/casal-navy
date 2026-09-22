@@ -255,9 +255,11 @@ const Store = {
   _data() { return this._ls('data.' + this.user.id) || { plan: null, logs: [], meta: { rotation_index: 0 } }; },
   _saveData(d) { this._ls('data.' + this.user.id, d); },
 
-  // Assinatura do plano salvo: identifica um template padrão antigo (antes do
-  // plano avançado A–F de 22/09/2026). Só migra se for idêntico a um template
-  // antigo — plano personalizado pelo usuário nunca é tocado.
+  // Assinatura do plano salvo + carimbo de template (v23).
+  // Migra qualquer rotação padrão antiga (A–F de 6 dias ou A/B/C de 3 dias)
+  // para o plano avançado A–F — mesmo que o usuário tenha ajustado algo nela.
+  // Plano com outro nome é tratado como personalizado e nunca é tocado.
+  // O carimbo (planTplV, por conta) garante que a migração rode uma única vez.
   _planSig(pl) {
     try {
       return JSON.stringify((pl.days || []).map(d => ({
@@ -266,15 +268,24 @@ const Store = {
       })));
     } catch (e) { return ''; }
   },
-  _isOldTemplate(pl) {
-    if (!(pl && pl.name === 'Rotação A–F' && pl.days && pl.days.length === 6)) return false;
-    const s = this._planSig(pl);
-    return s === PLAN_6DAY_SIG_V1 || s === PLAN_6DAY_SIG_V2;
+  _stdRotationKind(pl) {
+    if (!pl || !Array.isArray(pl.days)) return null;
+    const nm = String(pl.name || '').trim().toLowerCase()
+      .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    if (/rotacao a\s*[–—-]\s*f/.test(nm) && pl.days.length === 6) return 'AF';
+    if (/rotacao a\s*\/\s*b\s*\/\s*c/.test(nm) && pl.days.length === 3) return 'ABC';
+    return null;
   },
-  _isOld3DayTemplate(pl) {
-    return pl && pl.name === 'Rotação A/B/C' && pl.days && pl.days.length === 3 && this._planSig(pl) === PLAN_3DAY_SIG_V1;
+  _tplStamp() { try { return this._ls('planTplV.' + this.user.id) || 0; } catch (e) { return 0; } },
+  _tplStampSet(v) { try { this._ls('planTplV.' + this.user.id, v); } catch (e) {} },
+  _needsTplMigrate(pl) {
+    if (!pl) return false;
+    if ((pl.tpl_v || 0) >= PLAN_TPL_V || this._tplStamp() >= PLAN_TPL_V) return false;
+    if (!this._stdRotationKind(pl)) return false; // personalizado: não toca
+    if (this._planSig(pl) === PLAN_6DAY_SIG_V3) { this._tplStampSet(PLAN_TPL_V); return false; }
+    return true;
   },
-  _freshPlan() { return { name: 'Rotação A–F', days: JSON.parse(JSON.stringify(PLAN_6DAY)) }; },
+  _freshPlan() { return { name: 'Rotação A–F', days: JSON.parse(JSON.stringify(PLAN_6DAY)), tpl_v: PLAN_TPL_V }; },
 
   async getPlan() {
     if (this.mode === 'cloud') {
@@ -283,18 +294,18 @@ const Store = {
         let pl;
         if (rows && rows.length) {
           pl = { id: rows[0].id, name: rows[0].name, days: rows[0].days };
-          if (this._isOld3DayTemplate(pl)) {
-            await SB.upd('plans', '?id=eq.' + pl.id, { name: 'Rotação A–F', days: PLAN_6DAY, updated_at: new Date().toISOString() });
-            pl = { id: pl.id, name: 'Rotação A–F', days: PLAN_6DAY };
-          } else if (this._isOldTemplate(pl)) {
-            // template padrão antigo → substitui pelo plano avançado A–F (v22)
-            const fresh = this._freshPlan();
-            await SB.upd('plans', '?id=eq.' + pl.id, { days: fresh.days, updated_at: new Date().toISOString() });
-            pl = { id: pl.id, name: pl.name, days: fresh.days };
+          if (this._needsTplMigrate(pl)) {
+            // rotação padrão antiga → plano avançado A–F (v23); histórico e cargas não são tocados
+            const f = this._freshPlan();
+            await SB.upd('plans', '?id=eq.' + pl.id, { name: f.name, days: f.days, updated_at: new Date().toISOString() });
+            pl = { id: pl.id, name: f.name, days: f.days, tpl_v: f.tpl_v };
+            this._tplStampSet(PLAN_TPL_V);
           }
         } else {
-          const ins = await SB.ins('plans', { user_id: this.user.id, name: 'Rotação A–F', days: PLAN_6DAY, active: true });
-          pl = { id: ins[0].id, name: ins[0].name, days: ins[0].days };
+          const f = this._freshPlan();
+          const ins = await SB.ins('plans', { user_id: this.user.id, name: f.name, days: f.days, active: true });
+          pl = { id: ins[0].id, name: ins[0].name, days: ins[0].days, tpl_v: f.tpl_v };
+          this._tplStampSet(PLAN_TPL_V);
         }
         this._setCache(Object.assign(this._cache() || {}, { plan: pl }));
         return pl;
@@ -306,12 +317,12 @@ const Store = {
       }
     }
     const d = this._data();
-    if (!d.plan) { d.plan = { name: 'Rotação A–F', days: PLAN_6DAY }; this._saveData(d); }
-    else if (this._isOld3DayTemplate(d.plan)) {
-      d.plan = { name: 'Rotação A–F', days: PLAN_6DAY }; this._saveData(d);
-    }
-    else if (this._isOldTemplate(d.plan)) {
-      d.plan = this._freshPlan(); this._saveData(d);
+    if (!d.plan) { d.plan = this._freshPlan(); this._saveData(d); this._tplStampSet(PLAN_TPL_V); }
+    else if (this._needsTplMigrate(d.plan)) {
+      const keepId = d.plan.id;
+      d.plan = this._freshPlan();
+      if (keepId) d.plan.id = keepId;
+      this._saveData(d); this._tplStampSet(PLAN_TPL_V);
     }
     return d.plan;
   },
