@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0a1a33">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Casal Navy">
+<title>Casal Navy — Treino</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div id="app">
+
+  <!-- ============ AUTH ============ -->
+  <section id="screen-auth" class="screen">
+    <div class="auth-wrap">
+      <div class="brand">
+        <img src="icons/icon.svg" alt="Casal Navy" class="brand-icon">
+        <h1>Casal Navy</h1>
+        <p>Seu plano de treino no bolso</p>
+      </div>
+      <div class="tabs">
+        <button class="tab active" data-authtab="login">Entrar</button>
+        <button class="tab" data-authtab="signup">Criar conta</button>
+      </div>
+      <div id="auth-login" class="auth-form">
+        <input id="login-email" type="email" placeholder="E-mail" autocomplete="email">
+        <input id="login-pass" type="password" placeholder="Senha" autocomplete="current-password">
+        <button id="btn-login" class="btn primary">Entrar</button>
+      </div>
+      <div id="auth-signup" class="auth-form hidden">
+        <input id="su-name" type="text" placeholder="Seu nome (ex: Tony)" autocomplete="name">
+        <input id="su-email" type="email" placeholder="E-mail" autocomplete="email">
+        <input id="su-pass" type="password" placeholder="Senha (mín. 4 letras)" autocomplete="new-password">
+        <button id="btn-signup" class="btn primary">Criar conta</button>
+      </div>
+      <p id="auth-err" class="err"></p>
+      <p class="hint" id="auth-mode-hint"></p>
+    </div>
+  </section>
+
+  <!-- ============ HOJE ============ -->
+  <section id="screen-hoje" class="screen hidden">
+    <header class="topbar"><h2>Treino de hoje</h2><span id="hoje-date" class="date"></span></header>
+    <div class="content" id="hoje-content"></div>
+  </section>
+
+  <!-- ============ HISTORICO ============ -->
+  <section id="screen-historico" class="screen hidden">
+    <header class="topbar"><h2>Histórico</h2></header>
+    <div class="content" id="hist-content"></div>
+  </section>
+
+  <!-- ============ PLANO ============ -->
+  <section id="screen-plano" class="screen hidden">
+    <header class="topbar"><h2>Plano</h2><button id="btn-plan-edit" class="btn small">Editar</button></header>
+    <div class="content" id="plano-content"></div>
+  </section>
+
+  <!-- ============ CONTA ============ -->
+  <section id="screen-conta" class="screen hidden">
+    <header class="topbar"><h2>Conta</h2></header>
+    <div class="content" id="conta-content"></div>
+  </section>
+
+  <nav id="tabbar" class="hidden">
+    <button data-screen="hoje" class="active">🏋️<span>Hoje</span></button>
+    <button data-screen="historico">📊<span>Histórico</span></button>
+    <button data-screen="plano">📋<span>Plano</span></button>
+    <button data-screen="conta">👤<span>Conta</span></button>
+  </nav>
+</div>
+
+<!-- modal generico -->
+<div id="modal" class="modal hidden"><div class="modal-card" id="modal-card"></div></div>
+<div id="toast" class="toast hidden"></div>
+
+<script src="js/plans.js"></script>
+<script src="js/history_seed.js"></script>
+<script src="js/sb.js"></script>
+<script src="js/store.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
