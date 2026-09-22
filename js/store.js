@@ -250,6 +250,9 @@ const Store = {
   _isOldTemplate(pl) {
     return pl && pl.name === 'Rotação A–F' && pl.days && pl.days.length === 6 && this._planSig(pl) === PLAN_6DAY_SIG_V1;
   },
+  _isOld3DayTemplate(pl) {
+    return pl && pl.name === 'Rotação A/B/C' && pl.days && pl.days.length === 3 && this._planSig(pl) === PLAN_3DAY_SIG_V1;
+  },
   _freshPlan() { return { name: 'Rotação A–F', days: JSON.parse(JSON.stringify(PLAN_6DAY)) }; },
 
   async getPlan() {
@@ -259,7 +262,7 @@ const Store = {
         let pl;
         if (rows && rows.length) {
           pl = { id: rows[0].id, name: rows[0].name, days: rows[0].days };
-          if (pl.name === 'Rotação A/B/C' && pl.days && pl.days.length === 3 && pl.days[0].day === 'Dia A') {
+          if (this._isOld3DayTemplate(pl)) {
             await SB.upd('plans', '?id=eq.' + pl.id, { name: 'Rotação A–F', days: PLAN_6DAY, updated_at: new Date().toISOString() });
             pl = { id: pl.id, name: 'Rotação A–F', days: PLAN_6DAY };
           } else if (this._isOldTemplate(pl)) {
@@ -283,7 +286,7 @@ const Store = {
     }
     const d = this._data();
     if (!d.plan) { d.plan = { name: 'Rotação A–F', days: PLAN_6DAY }; this._saveData(d); }
-    else if (d.plan.name === 'Rotação A/B/C' && d.plan.days && d.plan.days.length === 3 && d.plan.days[0].day === 'Dia A') {
+    else if (this._isOld3DayTemplate(d.plan)) {
       d.plan = { name: 'Rotação A–F', days: PLAN_6DAY }; this._saveData(d);
     }
     else if (this._isOldTemplate(d.plan)) {
