@@ -51,3 +51,31 @@ create policy "owner plans" on plans
 drop policy if exists "owner logs" on workout_logs;
 create policy "owner logs" on workout_logs
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- ---------- recadinhos do casal: um escreve, o outro le ----------
+create table if not exists couple_notes (
+  id uuid primary key default gen_random_uuid(),
+  from_user_id uuid not null references profiles(id) on delete cascade,
+  from_name text not null default '',
+  to_name text not null default '',
+  message text not null default '',
+  created_at timestamptz not null default now()
+);
+create index if not exists couple_notes_to_idx on couple_notes(to_name, created_at desc);
+
+alter table couple_notes enable row level security;
+
+drop policy if exists "couple insert" on couple_notes;
+create policy "couple insert" on couple_notes
+  for insert with check (auth.uid() = from_user_id);
+
+drop policy if exists "couple select" on couple_notes;
+create policy "couple select" on couple_notes
+  for select using (
+    auth.uid() = from_user_id
+    or lower(to_name) = lower((select name from profiles where id = auth.uid()))
+  );
+
+drop policy if exists "couple delete" on couple_notes;
+create policy "couple delete" on couple_notes
+  for delete using (auth.uid() = from_user_id);

@@ -82,7 +82,27 @@ const S = {
   draft: null,           // treino em andamento
   todayIdx: 0, todayDate: todayISO(),
   editPlan: false,
+  notes: [],             // recadinhos do casal
 };
+function fmtDT(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return pad(d.getDate()) + '/' + pad(d.getMonth()+1) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+// quem recebe o recado por padrao (o outro do casal)
+function partnerDefault() {
+  const me = String(Store.user && Store.user.name || '').toLowerCase();
+  if (/tony|antonio|assef/.test(me)) return 'Eliza';
+  if (/eliz/.test(me)) return 'Antonio';
+  return '';
+}
+const NOTE_IDEAS = [
+  'Bom treino, meu amor! 💪❤️',
+  'Foca que o shape vem! 😍',
+  'Tô torcendo por você 💙',
+  'Arrasa hoje! Depois tem recompensa 😏❤️',
+  'Treina fofo que eu te amo forte 🥰',
+];
 
 function draftKey() { return 'casalnavy.draft.' + Store.user.id; }
 function loadDraft() { try { S.draft = JSON.parse(localStorage.getItem(draftKey())); } catch(e){ S.draft = null; } }
@@ -130,6 +150,7 @@ function refreshActive() {
   else if (s === 'historico') renderHistorico();
   else if (s === 'plano') renderPlano();
   else if (s === 'conta') renderConta();
+  else if (s === 'recados') renderRecados();
   else if (s === 'calendario') renderCalendario();
 }
 
@@ -146,12 +167,13 @@ async function enterApp() {
   S.plan = await Store.getPlan();
   S.logs = await Store.getLogs();
   S.meta = await Store.getMeta();
+  try { S.notes = await Store.getNotes(); } catch (e) { S.notes = []; }
   loadDraft();
   S.todayDate = todayISO();
   const n = S.plan.days.length || 1;
   S.todayIdx = ((S.meta.rotation_index || 0) % n + n) % n;
   if (S.draft && S.draft.logDate !== S.todayDate) { /* mantem rascunho de outro dia */ }
-  renderHoje(); renderHistorico(); renderPlano(); renderConta(); renderCalendario();
+  renderHoje(); renderHistorico(); renderPlano(); renderConta(); renderCalendario(); renderRecados();
   showScreen('hoje');
 }
 
@@ -166,7 +188,7 @@ function renderHoje() {
   const draft = S.draft;
   const isDraftDay = draft && draft.dayIdx === S.todayIdx && draft.logDate === S.todayDate;
 
-  let h = profileBar() + (offline
+  let h = profileBar() + noteBanner() + (offline
     ? `<div class="card" style="border-color:var(--gold)"><div class="sub">📶 <b>Sem internet</b> — pode treinar normal, tudo sincroniza quando o sinal voltar.</div></div>`
     : '')
     + `<div class="card"><div class="day-head">
@@ -202,13 +224,13 @@ function renderHoje() {
 
   $('#hoje-logdate').addEventListener('change', e => { S.todayDate = e.target.value || todayISO(); ensureDraft(); renderHoje(); });
   $('#hoje-daypick').addEventListener('change', e => { S.todayIdx = +e.target.value; clearDraft(); renderHoje(); });
-  $$('#hoje-content .ex').forEach(el => el.addEventListener('click', () => openExercise(+el.dataset.ex)));
-  $$('#hoje-content .yt-btn').forEach(b => b.addEventListener('click', e => {
+  $$('#hoje-content .ex').forEach(el => el.addEventListener('click', () => openExercise(+el.dataset.ex)));  $$('#hoje-content .yt-btn').forEach(b => b.addEventListener('click', e => {
     e.stopPropagation();
     const ex = S.plan.days[S.todayIdx].exercises[+b.dataset.yt];
     window.open(ytUrlFor(ex, b.dataset.v), '_blank');
   }));
   wireProfileBar();
+  wireNoteBanner();
   $('#btn-finish').addEventListener('click', finishWorkout);
   $('#btn-discard').addEventListener('click', () => { clearDraft(); renderHoje(); toast('Rascunho descartado.'); });
 }
@@ -675,6 +697,68 @@ function renderPlano() {
 $('#btn-plan-edit').addEventListener('click', () => { S.editPlan = !S.editPlan; renderPlano(); });
 
 /* ================= CONTA ================= */
+/* ================= RECADOS ================= */
+function renderRecados() {
+  const me = String(Store.user && Store.user.name || '').toLowerCase();
+  const mine = (S.notes || []).filter(n => String(n.from_user_id) === String(Store.user && Store.user.id));
+  const received = (S.notes || []).filter(n => String(n.from_user_id) !== String(Store.user && Store.user.id));
+  const noteCard = n => {
+    const canDel = String(n.from_user_id) === String(Store.user && Store.user.id);
+    return `<div class="note ${canDel ? 'sent' : 'got'}">
+      <div class="note-head"><b>💌 ${esc(n.from_name || '❤️')}</b><span>${esc(fmtDT(n.created_at))}</span></div>
+      <div class="note-msg">${esc(n.message)}</div>
+      ${canDel ? `<button class="btn small danger note-del" data-id="${esc(n.id)}">Apagar</button>` : ''}
+    </div>`;
+  };
+  $('#recados-content').innerHTML = `
+    <div class="card note-form">
+      <h3>Escrever recadinho 💕</h3>
+      <div class="sub">Ela(e) vai ver na hora, na aba Recados e no topo do treino de hoje.</div>
+      <label class="lbl">Para quem</label>
+      <input id="note-to" placeholder="Ex: Eliza" value="${esc(partnerDefault())}" maxlength="40">
+      <label class="lbl">Mensagem</label>
+      <textarea id="note-msg" rows="3" maxlength="500" placeholder="Escreve algo fofo pra motivar... 🥰"></textarea>
+      <div class="chips">${NOTE_IDEAS.map(t => `<button class="chip" data-idea="${esc(t)}">${esc(t)}</button>`).join('')}</div>
+      <button class="btn primary" id="note-send">Enviar recado 💌</button>
+    </div>
+    ${received.length ? `<h3 class="sec-t">Recebidos (${received.length})</h3>` + received.map(noteCard).join('') : ''}
+    ${mine.length ? `<h3 class="sec-t">Enviados por você (${mine.length})</h3>` + mine.map(noteCard).join('') : ''}
+    ${!received.length && !mine.length ? '<div class="card"><div class="sub">Nenhum recadinho ainda. Escreve o primeiro ali em cima! 💌</div></div>' : ''}`;
+
+  $$('#recados-content .chip').forEach(c => c.addEventListener('click', () => {
+    const ta = $('#note-msg'); ta.value = c.dataset.idea; ta.focus();
+  }));
+  $('#note-send').addEventListener('click', async () => {
+    const to = $('#note-to').value, msg = $('#note-msg').value;
+    try {
+      await Store.saveNote(to, msg);
+      S.notes = await Store.getNotes();
+      renderRecados(); renderHoje();
+      toast('Recadinho enviado! 💌');
+    } catch (e) { toast(e.message || 'Não deu pra enviar 😕'); }
+  });
+  $$('#recados-content .note-del').forEach(b => b.addEventListener('click', async () => {
+    if (!confirm('Apagar este recado?')) return;
+    await Store.deleteNote(b.dataset.id);
+    S.notes = await Store.getNotes();
+    renderRecados(); renderHoje();
+  }));
+}
+// banner do ultimo recado recebido no topo do Hoje
+function noteBanner() {
+  const rec = (S.notes || []).find(n => String(n.from_user_id) !== String(Store.user && Store.user.id));
+  if (!rec) return '';
+  return `<div class="card note-banner" id="note-banner">
+    <div class="note-head"><b>💌 Recado de ${esc(rec.from_name || 'seu amor')}</b><span>${esc(fmtDT(rec.created_at))}</span></div>
+    <div class="note-msg">${esc(rec.message)}</div>
+    <button class="btn small" id="note-goto">Ver todos 💕</button>
+  </div>`;
+}
+function wireNoteBanner() {
+  const g = $('#note-goto');
+  if (g) g.addEventListener('click', () => { showScreen('recados'); renderRecados(); });
+}
+
 function renderConta() {
   const cloud = Store.mode === 'cloud';
   const cfg = Store.cfg;

@@ -428,6 +428,39 @@ const Store = {
     const d = this._data(); d.meta = meta; this._saveData(d);
   },
 
+  // ---------- recadinhos do casal ----------
+  async getNotes() {
+    if (this.mode === 'cloud') {
+      try {
+        const r = await SB.sel('couple_notes', '?select=*&order=created_at.desc&limit=60');
+        return r || [];
+      } catch (e) { return []; }
+    }
+    return this._ls('notes.' + this.user.id) || [];
+  },
+  async saveNote(toName, message) {
+    toName = (toName || '').trim(); message = (message || '').trim();
+    if (!toName || !message) throw new Error('Escreva para quem é e a mensagem. 💌');
+    if (this.mode === 'cloud') {
+      const rows = await SB.ins('couple_notes', {
+        from_user_id: this.user.id, from_name: this.user.name,
+        to_name: toName, message: message.slice(0, 500),
+      });
+      return rows && rows[0];
+    }
+    const k = 'notes.' + this.user.id;
+    const arr = this._ls(k) || [];
+    const row = { id: this.uid(), from_user_id: this.user.id, from_name: this.user.name,
+      to_name: toName, message: message.slice(0, 500), created_at: new Date().toISOString() };
+    arr.unshift(row); this._ls(k, arr);
+    return row;
+  },
+  async deleteNote(id) {
+    if (this.mode === 'cloud') { try { await SB.del('couple_notes', '?id=eq.' + id); } catch (e) {} return; }
+    const k = 'notes.' + this.user.id;
+    this._ls(k, (this._ls(k) || []).filter(x => x.id !== id));
+  },
+
   saveSbConfig(url, key) {
     this.cfg = { url: url.trim().replace(/\/+$/, ''), key: key.trim() };
     this._ls('sbconfig', this.cfg);
