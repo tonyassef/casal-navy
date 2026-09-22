@@ -77,7 +77,7 @@ async function enterApp() {
   const n = S.plan.days.length || 1;
   S.todayIdx = ((S.meta.rotation_index || 0) % n + n) % n;
   if (S.draft && S.draft.logDate !== S.todayDate) { /* mantem rascunho de outro dia */ }
-  renderHoje(); renderHistorico(); renderPlano(); renderConta();
+  renderHoje(); renderHistorico(); renderPlano(); renderConta(); renderCalendario();
   showScreen('hoje');
 }
 
@@ -113,9 +113,16 @@ function renderHoje() {
   });
 
   h += `<button class="btn primary" id="btn-finish">Concluir treino ✓</button>
+        <button class="btn spotify" id="btn-spotify">🎵 ${((S.meta||{}).spotify_playlist) ? 'Tocar playlist de treino' : 'Configurar playlist de treino 🎵'}</button>
         <button class="btn" id="btn-discard" style="${isDraftDay?'':'display:none'}">Descartar rascunho</button>`;
   $('#hoje-content').innerHTML = h;
   $('#hoje-date').textContent = weekdayBR(S.todayDate);
+
+  $('#btn-spotify').addEventListener('click', () => {
+    const url = (S.meta && S.meta.spotify_playlist) || '';
+    if (url) window.open(url, '_blank');
+    else { showScreen('conta'); renderConta(); toast('Cole o link da sua playlist do Spotify abaixo.'); }
+  });
 
   $('#hoje-logdate').addEventListener('change', e => { S.todayDate = e.target.value || todayISO(); ensureDraft(); renderHoje(); });
   $('#hoje-daypick').addEventListener('change', e => { S.todayIdx = +e.target.value; clearDraft(); renderHoje(); });
@@ -242,9 +249,45 @@ async function finishWorkout() {
   } catch(e){ toast('Erro ao salvar: ' + e.message); }
 }
 
-/* ================= HISTORICO ================= */
+/* ================= HISTORICO / EVOLUCAO ================= */
+function kpiStats(days) {
+  const sinceISO = days ? todayISO(new Date(Date.now() - (days - 1) * 864e5)) : '';
+  let treinos = 0, series = 0, vol = 0;
+  S.logs.forEach(l => {
+    if (sinceISO && l.log_date < sinceISO) return;
+    treinos++;
+    l.entries.forEach(e => {
+      const s = e.doneSets > 0 ? e.doneSets : (parseInt(e.sets, 10) || 0);
+      series += s;
+      const m = maxLoad(e.weight);
+      if (m != null) vol += m * s;
+    });
+  });
+  return { treinos, series, vol: Math.round(vol) };
+}
+function streakDays() {
+  const set = new Set(S.logs.map(l => l.log_date));
+  const d = new Date();
+  if (!set.has(todayISO(d))) d.setDate(d.getDate() - 1);
+  let s = 0;
+  while (set.has(todayISO(d))) { s++; d.setDate(d.getDate() - 1); }
+  return s;
+}
+
 function renderHistorico() {
-  let h = `<div class="card"><h3>Progressão por exercício</h3>
+  const r = S.histRange || 30;
+  const st = kpiStats(r);
+  let h = `<div class="seg">
+      ${[[7,'7 dias'],[30,'30 dias'],[0,'Tudo']].map(([v,l]) =>
+        `<button data-r="${v}" class="${r===v?'active':''}">${l}</button>`).join('')}</div>
+    <div class="kpis">
+      <div class="kpi"><b>${st.treinos}</b><small>treinos</small></div>
+      <div class="kpi"><b>${st.series}</b><small>séries</small></div>
+      <div class="kpi"><b>${st.vol.toLocaleString('pt-BR')}</b><small>volume (lbs)</small></div>
+      <div class="kpi"><b>${streakDays()} 🔥</b><small>dias seguidos</small></div>
+    </div>`;
+
+  h += `<div class="card"><h3>Progressão por exercício</h3>
     <label class="lbl">Exercício</label><select id="h-exsel"></select>
     <canvas class="chart" id="h-chart" width="640" height="220"></canvas>
     <div class="sub" id="h-stat" style="margin-top:6px"></div></div>`;
@@ -261,6 +304,10 @@ function renderHistorico() {
           <div class="sub" style="text-align:center">Traz seus pesos de ago/2025 até hoje para o gráfico de progressão.</div>`;
   }
   $('#hist-content').innerHTML = h;
+
+  $$('#hist-content .seg button').forEach(b => b.addEventListener('click', () => {
+    S.histRange = +b.dataset.r; renderHistorico();
+  }));
 
   // preenche select de exercicios
   const names = {};
@@ -301,15 +348,15 @@ function drawChart(key, names) {
   if (mn === mx) { mn -= 5; mx += 5; }
   const px = i => 40 + (W-60) * (pts.length===1 ? 0.5 : i/(pts.length-1));
   const py = w => (H-34) - (H-60) * ((w-mn)/(mx-mn));
-  ctx.strokeStyle = '#1e3358'; ctx.fillStyle = '#8fa3c0'; ctx.font = '11px sans-serif';
+  ctx.strokeStyle = '#c6e2f5'; ctx.fillStyle = '#5d84a6'; ctx.font = '11px sans-serif';
   [mn, (mn+mx)/2, mx].forEach(v => { const y = py(v);
     ctx.beginPath(); ctx.moveTo(36,y); ctx.lineTo(W-8,y); ctx.stroke();
     ctx.fillText(String(Math.round(v*10)/10), 4, y+4); });
   ctx.beginPath();
   pts.forEach((p,i)=>{ const x=px(i), y=py(p.w); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
-  ctx.strokeStyle = '#4da3ff'; ctx.lineWidth = 2.5; ctx.stroke();
+  ctx.strokeStyle = '#1b7cbb'; ctx.lineWidth = 2.5; ctx.stroke();
   pts.forEach((p,i)=>{ const x=px(i), y=py(p.w);
-    ctx.beginPath(); ctx.arc(x,y,3.5,0,7); ctx.fillStyle = '#f5b942'; ctx.fill(); });
+    ctx.beginPath(); ctx.arc(x,y,3.5,0,7); ctx.fillStyle = '#d9931e'; ctx.fill(); });
   const first = pts[0], last = pts[pts.length-1];
   const evo = last.w - first.w;
   stat.innerHTML = `${pts.length} registros • de <b>${first.w}</b> para <b>${last.w} lbs</b> ` +
@@ -354,6 +401,50 @@ async function importSeed() {
   S.meta.seed_imported = true; await Store.saveMeta(S.meta);
   S.logs = await Store.getLogs();
   renderHistorico(); toast('Histórico importado! 📈 Veja sua progressão no gráfico.');
+}
+
+/* ================= CALENDARIO ================= */
+function renderCalendario() {
+  const now = new Date();
+  if (S.calY == null) { S.calY = now.getFullYear(); S.calM = now.getMonth(); }
+  const y = S.calY, m = S.calM;
+  const first = new Date(y, m, 1);
+  const startDow = first.getDay();
+  const daysIn = new Date(y, m + 1, 0).getDate();
+  const daysPrev = new Date(y, m, 0).getDate();
+  const byDate = {};
+  S.logs.forEach(l => { (byDate[l.log_date] = byDate[l.log_date] || []).push(l); });
+  const monthName = first.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
+  const tISO = todayISO();
+  let h = `<div class="card"><div class="cal-head">
+    <button class="btn small" id="cal-prev">‹</button><h3>${monthName}</h3><button class="btn small" id="cal-next">›</button></div>
+    <div class="cal-grid">${['D','S','T','Q','Q','S','S'].map(d => `<div class="cal-dow">${d}</div>`).join('')}`;
+  for (let i = startDow; i > 0; i--) h += `<div class="cal-day dim">${daysPrev - i + 1}</div>`;
+  for (let d = 1; d <= daysIn; d++) {
+    const iso = `${y}-${pad(m + 1)}-${pad(d)}`;
+    const has = byDate[iso] && byDate[iso].length;
+    const cls = 'cal-day' + (iso === tISO ? ' today' : '') + (has ? ' has' : '') + (iso === S.calSel ? ' sel' : '');
+    h += `<div class="${cls}" data-d="${iso}">${d}</div>`;
+  }
+  const trail = (7 - (startDow + daysIn) % 7) % 7;
+  for (let d = 1; d <= trail; d++) h += `<div class="cal-day dim">${d}</div>`;
+  h += `</div></div><div id="cal-daylist">${calDayList(byDate)}</div>`;
+  $('#cal-content').innerHTML = h;
+  $('#cal-prev').addEventListener('click', () => { const d = new Date(y, m - 1, 1); S.calY = d.getFullYear(); S.calM = d.getMonth(); renderCalendario(); });
+  $('#cal-next').addEventListener('click', () => { const d = new Date(y, m + 1, 1); S.calY = d.getFullYear(); S.calM = d.getMonth(); renderCalendario(); });
+  $$('#cal-content .cal-day[data-d]').forEach(el => el.addEventListener('click', () => { S.calSel = el.dataset.d; renderCalendario(); }));
+  $$('#cal-daylist .log-item').forEach(el => el.addEventListener('click', () => openLog(el.dataset.id)));
+}
+function calDayList(byDate) {
+  const iso = S.calSel || todayISO();
+  const logs = byDate[iso] || [];
+  let h = `<div class="card"><h3>${esc(fmtBR(iso))} <span class="sub">• ${esc(weekdayBR(iso))}</span></h3>`;
+  if (!logs.length) h += `<div class="sub">Sem treino registrado neste dia.</div>`;
+  logs.forEach(l => {
+    h += `<div class="log-item" data-id="${l.id}"><div><b>${esc(l.day_label)}</b>
+      <small>${l.entries.length} exercícios</small></div><div class="chev">›</div></div>`;
+  });
+  return h + `</div>`;
 }
 
 /* ================= PLANO ================= */
@@ -478,8 +569,19 @@ function renderConta() {
     <label class="lbl">Restaurar backup (JSON)</label><input type="file" id="c-imp" accept=".json">
     </div>`;
 
+  h += `<div class="card"><h3>🎵 Spotify</h3>
+    <div class="sub">Um botão na tela de treino abre sua playlist de academia com 1 toque. (O navegador não permite tocar música sozinho ao abrir o app.)</div>
+    <label class="lbl">Link da playlist</label><input id="c-spotify" placeholder="https://open.spotify.com/playlist/..." value="${esc((S.meta&&S.meta.spotify_playlist)||'')}">
+    <button class="btn primary" id="c-spsave">Salvar playlist</button></div>`;
+
   h += `<button class="btn danger" id="c-logout">Sair da conta</button>`;
   $('#conta-content').innerHTML = h;
+
+  $('#c-spsave').addEventListener('click', async () => {
+    S.meta.spotify_playlist = $('#c-spotify').value.trim();
+    try { await Store.saveMeta(S.meta); toast('Playlist salva! 🎵'); }
+    catch(e){ toast('Erro: ' + e.message); }
+  });
 
   $('#c-save').addEventListener('click', () => {
     const url = $('#c-url').value.trim(), key = $('#c-key').value.trim();
@@ -550,6 +652,7 @@ $$('#tabbar button').forEach(b => b.addEventListener('click', () => {
   const s = b.dataset.screen; showScreen(s);
   if (s === 'hoje') renderHoje(); if (s === 'historico') renderHistorico();
   if (s === 'plano') renderPlano(); if (s === 'conta') renderConta();
+  if (s === 'calendario') renderCalendario();
 }));
 
 document.addEventListener('DOMContentLoaded', boot);

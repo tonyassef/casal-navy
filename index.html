@@ -3,10 +3,10 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<meta name="theme-color" content="#0a1a33">
+<meta name="theme-color" content="#eaf5fd">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Casal Navy">
 <title>Casal Navy — Treino</title>
 <link rel="manifest" href="manifest.json">
@@ -51,10 +51,16 @@
     <div class="content" id="hoje-content"></div>
   </section>
 
-  <!-- ============ HISTORICO ============ -->
+  <!-- ============ HISTORICO / EVOLUCAO ============ -->
   <section id="screen-historico" class="screen hidden">
-    <header class="topbar"><h2>Histórico</h2></header>
+    <header class="topbar"><h2>Evolução</h2></header>
     <div class="content" id="hist-content"></div>
+  </section>
+
+  <!-- ============ CALENDARIO ============ -->
+  <section id="screen-calendario" class="screen hidden">
+    <header class="topbar"><h2>Calendário</h2></header>
+    <div class="content" id="cal-content"></div>
   </section>
 
   <!-- ============ PLANO ============ -->
@@ -71,7 +77,8 @@
 
   <nav id="tabbar" class="hidden">
     <button data-screen="hoje" class="active">🏋️<span>Hoje</span></button>
-    <button data-screen="historico">📊<span>Histórico</span></button>
+    <button data-screen="calendario">🗓️<span>Calendário</span></button>
+    <button data-screen="historico">📊<span>Evolução</span></button>
     <button data-screen="plano">📋<span>Plano</span></button>
     <button data-screen="conta">👤<span>Conta</span></button>
   </nav>
