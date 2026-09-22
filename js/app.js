@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v25'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v26'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -149,7 +149,7 @@ async function boot() {
     if (r.n > 0) { S.plan = await Store.getPlan(); S.logs = await Store.getLogs(); S.meta = await Store.getMeta(); refreshActive(); }
   } catch (e) {}
   if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').then(reg => {
+    navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
       // achou versão nova instalando: avisa e recarrega sozinho pro código novo valer
       const watchNew = () => {
         const nw = reg.installing;

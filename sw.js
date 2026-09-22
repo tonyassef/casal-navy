@@ -1,5 +1,5 @@
 /* Casal Navy — service worker: app shell offline-first */
-const CACHE = 'casal-navy-v25';
+const CACHE = 'casal-navy-v26';
 const ASSETS = [
   '.', 'index.html', 'manifest.json',
   'css/style.css',
@@ -8,7 +8,11 @@ const ASSETS = [
   'img/watermark.jpg',
 ];
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  // instalação resiliente: se algum arquivo falhar/lentar no download, os demais
+  // entram no cache mesmo assim e a atualização não trava no meio do caminho
+  e.waitUntil(caches.open(CACHE).then(c =>
+    Promise.allSettled(ASSETS.map(u => c.add(u).catch(() => null)))
+  ).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));
