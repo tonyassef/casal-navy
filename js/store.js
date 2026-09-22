@@ -35,7 +35,8 @@ const Store = {
         if (!SB.user) await SB.getUser();
         if (!SB.user) throw new Error('sessao expirada');
         this.user = { id: sess.userId, name: sess.name, email: sess.email };
-        this._ls('session', { mode: 'cloud', userId: this.user.id, name: this.user.name, email: this.user.email, token: SB.token, refreshToken: SB.refreshToken });
+        this._persistSession();
+        this._rememberSession();
         return true;
       } catch (e) {
         // sem internet: entra com os dados em cache, sincroniza depois
@@ -44,7 +45,8 @@ const Store = {
           this.user = { id: sess.userId, name: sess.name, email: sess.email };
           return true;
         }
-        this.signOut(); return false;
+        const r = await this.signOut();
+        return r === 'switched';
       }
     }
     if (sess.mode === 'local') {
@@ -80,6 +82,7 @@ const Store = {
       this.mode = 'local'; this.user = { id, name, email };
     }
     this._persistSession();
+    this._rememberSession();
     return this.user;
   },
 
@@ -104,6 +107,7 @@ const Store = {
       this.mode = 'local'; this.user = { id: u.id, name: u.name, email: u.email };
     }
     this._persistSession();
+    this._rememberSession();
     return this.user;
   },
 
@@ -113,10 +117,72 @@ const Store = {
       : { mode: 'local', userId: this.user.id });
   },
 
+  // ---------- perfis: varias contas neste aparelho (ex: Tony e Eliza) ----------
+  // Cada perfil mantem sua propria conta/sessao; trocar de perfil = trocar o
+  // token ativo. Os dados continuam separados por conta (RLS), sem DDL novo.
+  _savedSessions() { try { return JSON.parse(localStorage.getItem('casalnavy.sessions')) || []; } catch (e) { return []; } },
+  _setSavedSessions(s) { try { localStorage.setItem('casalnavy.sessions', JSON.stringify(s)); } catch (e) {} },
+  _rememberSession() {
+    if (!this.user) return;
+    const cur = this.mode === 'cloud'
+      ? { mode: 'cloud', userId: this.user.id, name: this.user.name, email: this.user.email, token: SB.token, refreshToken: SB.refreshToken }
+      : { mode: 'local', userId: this.user.id, name: this.user.name, email: this.user.email };
+    const rest = this._savedSessions().filter(x => x.userId !== this.user.id);
+    rest.unshift(cur);
+    this._setSavedSessions(rest);
+  },
+  async switchProfile(userId) {
+    const t = this._savedSessions().find(x => x.userId === userId);
+    if (!t) throw new Error('Perfil não encontrado.');
+    if (t.mode === 'cloud') {
+      SB.token = t.token || null; SB.refreshToken = t.refreshToken || null; SB.user = null;
+      try {
+        const ok = await SB.refresh();
+        if (!ok && !SB.token) throw new Error('sessao expirada');
+        if (!SB.user) await SB.getUser();
+        if (!SB.user) throw new Error('sessao expirada');
+      } catch (e) {
+        const off = typeof navigator !== 'undefined' && navigator.onLine === false;
+        if (!off) {
+          this._setSavedSessions(this._savedSessions().filter(x => x.userId !== userId));
+          throw new Error('Sessão expirada. Entre de novo neste perfil.');
+        }
+      }
+      this.mode = 'cloud';
+      this.user = { id: t.userId, name: t.name, email: t.email };
+      try {
+        const p = await SB.sel('profiles', '?id=eq.' + t.userId + '&select=name&limit=1');
+        if (p && p[0] && p[0].name) this.user.name = p[0].name;
+      } catch (e) {}
+    } else {
+      const users = this._ls('users') || [];
+      const u = users.find(x => x.id === t.userId);
+      if (!u) {
+        this._setSavedSessions(this._savedSessions().filter(x => x.userId !== userId));
+        throw new Error('Perfil não encontrado neste aparelho.');
+      }
+      this.mode = 'local';
+      this.user = { id: u.id, name: u.name, email: u.email };
+    }
+    this._persistSession();
+    this._rememberSession();
+    return this.user;
+  },
+  removeProfile(userId) {
+    this._setSavedSessions(this._savedSessions().filter(x => x.userId !== userId));
+  },
+
   async signOut() {
+    const curId = this.user && this.user.id;
     if (this.mode === 'cloud') { try { await SB.signOut(); } catch (e) {} }
+    if (curId) this._setSavedSessions(this._savedSessions().filter(x => x.userId !== curId));
     localStorage.removeItem('casalnavy.session');
     this.user = null; this.mode = 'local';
+    const rest = this._savedSessions();
+    if (rest.length) {
+      try { await this.switchProfile(rest[0].userId); return 'switched'; } catch (e) {}
+    }
+    return 'logged-out';
   },
 
   // ---------- offline: fila de sincronizacao + cache local (modo nuvem) ----------

@@ -151,3 +151,14 @@ canvas.chart{width:100%;height:220px;background:var(--surface);border:1px solid 
 
 /* spotify */
 .btn.spotify{background:linear-gradient(135deg,#1db954,#1ed760);color:#fff;}
+
+/* perfis */
+.profbar{display:flex;gap:8px;margin-bottom:10px;overflow-x:auto;padding-bottom:2px;}
+.profchip{border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:999px;
+  padding:8px 16px;font-size:13px;font-weight:600;white-space:nowrap;}
+.profchip.active{background:var(--accent-d);border-color:var(--accent-d);color:#fff;}
+.profchip.add{border-style:dashed;color:var(--muted);}
+
+/* youtube */
+.yt-btn{border:1px solid var(--line);background:var(--card2);border-radius:10px;font-size:15px;
+  padding:6px 9px;margin-left:6px;flex:none;}

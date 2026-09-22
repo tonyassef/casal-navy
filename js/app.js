@@ -35,6 +35,38 @@ function savedToast(okMsg) {
   if (Store.offlineWrite) { Store.offlineWrite = false; toast('Salvo offline 📶 — sincroniza sozinho quando a internet voltar.'); }
   else if (okMsg) toast(okMsg);
 }
+// youtube: link do exercicio ou busca pelo nome
+function ytUrlFor(ex, variant) {
+  const raw = variant === 'B' ? ex.ytB : ex.ytA;
+  const v = (raw || '').trim();
+  if (v) return /^https?:\/\//i.test(v) ? v : 'https://' + v;
+  const name = variant === 'B' && ex.nameB ? ex.nameB : ex.nameA;
+  return 'https://www.youtube.com/results?search_query=' + encodeURIComponent(name + ' exercício academia');
+}
+// barra de perfis (Tony / Eliza)
+function profileBar() {
+  const profiles = Store._savedSessions();
+  if (profiles.length < 2) return '';
+  return `<div class="profbar">${profiles.map(p =>
+    `<button class="profchip ${p.userId === Store.user.id ? 'active' : ''}" data-prof="${p.userId}">${esc((p.name || '?').split(' ')[0])}</button>`
+  ).join('')}<button class="profchip add" id="prof-add" title="Adicionar perfil">＋</button></div>`;
+}
+function wireProfileBar() {
+  $$('#hoje-content .profchip[data-prof]').forEach(b => b.addEventListener('click', async () => {
+    if (b.dataset.prof === Store.user.id) return;
+    toast('Trocando de perfil... ⏳');
+    try { await Store.switchProfile(b.dataset.prof); await enterApp(); toast('Perfil: ' + Store.user.name + ' 👤'); }
+    catch (e) { toast('Erro: ' + e.message); }
+  }));
+  const pa = $('#prof-add');
+  if (pa) pa.addEventListener('click', startAddProfile);
+}
+function startAddProfile() {
+  S.addingProfile = true;
+  $('#auth-err').textContent = '';
+  $('#auth-cancel').classList.remove('hidden');
+  showScreen('auth');
+}
 function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classList.remove('hidden'); }
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
@@ -129,7 +161,7 @@ function renderHoje() {
   const draft = S.draft;
   const isDraftDay = draft && draft.dayIdx === S.todayIdx && draft.logDate === S.todayDate;
 
-  let h = (offline
+  let h = profileBar() + (offline
     ? `<div class="card" style="border-color:var(--gold)"><div class="sub">📶 <b>Sem internet</b> — pode treinar normal, tudo sincroniza quando o sinal voltar.</div></div>`
     : '')
     + `<div class="card"><div class="day-head">
@@ -150,7 +182,7 @@ function renderHoje() {
       <div class="num">${done ? '✓' : (i+1)}</div>
       <div class="info"><b>${esc(st && st.variant === 'B' && ex.nameB ? ex.nameB : ex.nameA)}</b>
       <small>${esc(ex.sets||'')}× ${esc(ex.reps||'')} • ${esc(ex.technique||'')}</small></div>
-      ${w?`<div class="w">${w}</div>`:''}<div class="chev">›</div></div>`;
+      ${w?`<div class="w">${w}</div>`:''}<button class="yt-btn" data-yt="${i}" data-v="${st && st.variant === 'B' && ex.nameB ? 'B' : 'A'}" title="Ver vídeo no YouTube">▶️</button><div class="chev">›</div></div>`;
   });
 
   h += `<button class="btn primary" id="btn-finish">Concluir treino ✓</button>
@@ -166,6 +198,12 @@ function renderHoje() {
   $('#hoje-logdate').addEventListener('change', e => { S.todayDate = e.target.value || todayISO(); ensureDraft(); renderHoje(); });
   $('#hoje-daypick').addEventListener('change', e => { S.todayIdx = +e.target.value; clearDraft(); renderHoje(); });
   $$('#hoje-content .ex').forEach(el => el.addEventListener('click', () => openExercise(+el.dataset.ex)));
+  $$('#hoje-content .yt-btn').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation();
+    const ex = S.plan.days[S.todayIdx].exercises[+b.dataset.yt];
+    window.open(ytUrlFor(ex, b.dataset.v), '_blank');
+  }));
+  wireProfileBar();
   $('#btn-finish').addEventListener('click', finishWorkout);
   $('#btn-discard').addEventListener('click', () => { clearDraft(); renderHoje(); toast('Rascunho descartado.'); });
 }
@@ -188,6 +226,7 @@ function openExercise(i) {
   openModal(`
     <h3>${esc(name)}</h3>
     <div class="sub">${esc(S.plan.days[S.todayIdx].muscle || '')}</div>
+    <button class="btn" id="m-yt">▶️ Ver vídeo do exercício</button>
     ${ex.nameB ? `<div class="ab-toggle">
       <button class="${st.variant==='A'?'active':''}" data-v="A">Plano A<br><small>${esc(ex.nameA)}</small></button>
       <button class="${st.variant==='B'?'active':''}" data-v="B">Plano B<br><small>${esc(ex.nameB)}</small></button>
@@ -212,6 +251,7 @@ function openExercise(i) {
   $$('#modal-card .ab-toggle button').forEach(b => b.addEventListener('click', () => {
     st.variant = b.dataset.v; S.draft.entries[i] = st; saveDraft(); openExercise(i);
   }));
+  $('#m-yt').addEventListener('click', () => window.open(ytUrlFor(ex, st.variant), '_blank'));
   $('#m-sets').addEventListener('change', e => {
     st.sets = e.target.value;
     const n = Math.max(1, parseInt(st.sets, 10) || 3);
@@ -496,7 +536,8 @@ function renderPlano() {
       h += `<div class="section-title">${esc(dayLabel(d))}</div>`;
       d.exercises.forEach((ex, ei) => {
         h += `<div class="kv"><span><b>${esc(ex.nameA)}</b><br>
-          <small style="color:var(--muted)">B: ${esc(ex.nameB||'—')} • ${esc(ex.sets||'')}× ${esc(ex.reps||'')} • ${esc(ex.technique||'')}</small></span></div>`;
+          <small style="color:var(--muted)">B: ${esc(ex.nameB||'—')} • ${esc(ex.sets||'')}× ${esc(ex.reps||'')} • ${esc(ex.technique||'')}</small></span>
+          <button class="yt-btn" data-ytday="${di}" data-ytex="${ei}" title="Ver vídeo no YouTube">▶️</button></div>`;
       });
     });
     h += `</div><div class="sub" style="text-align:center">O plano pode ser atualizado a qualquer momento — ex: a cada 3 meses. Toque em Editar.</div>`;
@@ -510,6 +551,10 @@ function renderPlano() {
         h += `<div class="plan-ex">
           <input data-day="${di}" data-ex="${ei}" data-f="nameA" value="${esc(ex.nameA||'')}" placeholder="Exercício — Plano A (principal)">
           <input data-day="${di}" data-ex="${ei}" data-f="nameB" value="${esc(ex.nameB||'')}" placeholder="Exercício — Plano B (alternativo)">
+          <div class="row2">
+            <input data-day="${di}" data-ex="${ei}" data-f="ytA" value="${esc(ex.ytA||'')}" placeholder="▶ Link YouTube — Plano A">
+            <input data-day="${di}" data-ex="${ei}" data-f="ytB" value="${esc(ex.ytB||'')}" placeholder="▶ Link YouTube — Plano B">
+          </div>
           <div class="row2">
             <input data-day="${di}" data-ex="${ei}" data-f="sets" value="${esc(ex.sets||'')}" placeholder="Séries">
             <input data-day="${di}" data-ex="${ei}" data-f="reps" value="${esc(ex.reps||'')}" placeholder="Reps">
@@ -534,6 +579,10 @@ function renderPlano() {
       <button class="btn" id="p-cancel">Cancelar</button></div>`;
   }
   $('#plano-content').innerHTML = h;
+  $$('#plano-content .yt-btn').forEach(b => b.addEventListener('click', () => {
+    const ex = S.plan.days[+b.dataset.ytday].exercises[+b.dataset.ytex];
+    window.open(ytUrlFor(ex, 'A'), '_blank');
+  }));
   $('#btn-plan-edit').textContent = S.editPlan ? 'Ver' : 'Editar';
   if (!S.editPlan) return;
 
@@ -608,6 +657,17 @@ function renderConta() {
     <label class="lbl">Restaurar backup (JSON)</label><input type="file" id="c-imp" accept=".json">
     </div>`;
 
+  h += `<div class="card"><h3>👥 Perfis neste aparelho</h3>
+    <div class="sub">Troque entre o seu treino e o da Eliza sem precisar sair e entrar toda vez.</div>`;
+  Store._savedSessions().forEach(p => {
+    h += `<div class="kv"><span><b>${esc(p.name)}</b><br><small style="color:var(--muted)">${esc(p.email || '')}</small></span>
+      <span style="display:flex;gap:6px;align-items:center">${p.userId === Store.user.id
+        ? '<span class="badge">atual</span>'
+        : `<button class="btn small" data-useprof="${p.userId}">usar</button>`}
+      <button class="btn small danger" data-delprof="${p.userId}" title="Remover perfil">×</button></span></div>`;
+  });
+  h += `<button class="btn" id="c-addprof">＋ Adicionar perfil</button></div>`;
+
   h += `<div class="card"><h3>🎵 Spotify</h3>
     <div class="sub">Um botão na tela de treino abre sua playlist de academia com 1 toque. (O navegador não permite tocar música sozinho ao abrir o app.)</div>
     <label class="lbl">Link da playlist</label><input id="c-spotify" placeholder="https://open.spotify.com/playlist/..." value="${esc((S.meta&&S.meta.spotify_playlist)||DEFAULT_SPOTIFY)}">
@@ -615,6 +675,25 @@ function renderConta() {
 
   h += `<button class="btn danger" id="c-logout">Sair da conta</button>`;
   $('#conta-content').innerHTML = h;
+
+  $('#c-addprof').addEventListener('click', startAddProfile);
+  $$('#conta-content [data-useprof]').forEach(b => b.addEventListener('click', async () => {
+    toast('Trocando de perfil... ⏳');
+    try { await Store.switchProfile(b.dataset.useprof); await enterApp(); }
+    catch (e) { toast('Erro: ' + e.message); }
+  }));
+  $$('#conta-content [data-delprof]').forEach(b => b.addEventListener('click', async () => {
+    const p = Store._savedSessions().find(x => x.userId === b.dataset.delprof);
+    if (!confirm(`Remover o perfil "${p ? p.name : ''}" deste aparelho?`)) return;
+    const wasCurrent = b.dataset.delprof === Store.user.id;
+    Store.removeProfile(b.dataset.delprof);
+    if (wasCurrent) {
+      const rest = Store._savedSessions();
+      if (rest.length) { try { await Store.switchProfile(rest[0].userId); } catch (e) {} await enterApp(); }
+      else { await Store.signOut(); location.reload(); }
+    } else { renderConta(); }
+    toast('Perfil removido.');
+  }));
 
   $('#c-spsave').addEventListener('click', async () => {
     S.meta.spotify_playlist = $('#c-spotify').value.trim();
@@ -660,7 +739,7 @@ function renderConta() {
     } catch(err){ toast('Erro: ' + err.message); }
   });
   $('#c-logout').addEventListener('click', async () => {
-    if (!confirm('Sair da conta?')) return;
+    if (!confirm('Sair deste perfil? (os outros perfis continuam salvos no aparelho)')) return;
     await Store.signOut(); location.reload();
   });
 }
@@ -684,9 +763,12 @@ async function authGo(fn) {
     $('#auth-err').textContent = 'Sem internet 📶 — conecte-se para entrar na primeira vez.';
     return;
   }
-  try { await fn(); await enterApp(); }
+  try { await fn(); S.addingProfile = false; $('#auth-cancel').classList.add('hidden'); await enterApp(); }
   catch(e){ $('#auth-err').textContent = e.message || 'Erro. Tente de novo.'; }
 }
+$('#auth-cancel').addEventListener('click', () => {
+  S.addingProfile = false; $('#auth-cancel').classList.add('hidden'); enterApp();
+});
 $('#btn-login').addEventListener('click', () => authGo(() => Store.signIn($('#login-email').value, $('#login-pass').value)));
 $('#btn-signup').addEventListener('click', () => authGo(() => Store.signUp($('#su-name').value, $('#su-email').value, $('#su-pass').value)));
 
