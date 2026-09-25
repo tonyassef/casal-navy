@@ -281,8 +281,9 @@ const Store = {
   // patch cirúrgico de plano (25/09/2026, pedido do Antonio): Plano A —
   // Rosca Scott sozinha (longe da polia); o super-set tríceps+bíceps na corda
   // passa pra Rosca Martelo na Polia (tudo na polia, mesmo lugar).
-  // Só mexe nesses dois campos de técnica; cargas, séries e histórico intactos.
-  // Roda uma única vez por conta; em plano sem esses exercícios não faz nada.
+  // Só mexe se o campo ainda estiver com o valor antigo — edição manual do
+  // usuário (ex.: trocar pra drop-set) nunca é sobrescrita.
+  // Cargas, séries e histórico intactos. Roda uma única vez por conta.
   _planPatchStamp() { try { return parseInt(this._ls('planPatchV.' + this.user.id) || '0', 10); } catch (e) { return 0; } },
   _planPatchStampSet(v) { try { this._ls('planPatchV.' + this.user.id, String(v)); } catch (e) {} },
   _applyPlanPatch(pl) {
@@ -292,8 +293,8 @@ const Store = {
     try {
       const dA = (pl.days || []).find(d => d.day === 'Plano A');
       ((dA && dA.exercises) || []).forEach(e => {
-        if (e.nameA === 'Rosca Scott na Máquina' && e.technique) { e.technique = ''; changed = true; }
-        if (e.nameA === 'Rosca Martelo na Polia' && e.technique !== 'Super-set com Tríceps Corda na Polia') { e.technique = 'Super-set com Tríceps Corda na Polia'; changed = true; }
+        if (e.nameA === 'Rosca Scott na Máquina' && e.technique === 'Super-set com Tríceps Corda na Polia') { e.technique = ''; changed = true; }
+        if (e.nameA === 'Rosca Martelo na Polia' && !e.technique) { e.technique = 'Super-set com Tríceps Corda na Polia'; changed = true; }
       });
     } catch (e) {}
     return changed;
