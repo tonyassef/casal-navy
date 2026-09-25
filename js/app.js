@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v31'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v32'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -121,6 +121,9 @@ function clearDraft() { S.draft = null; Store.clearDraft(); }
 /* ---------- boot ---------- */
 async function boot() {
   const logged = await Store.boot().catch(() => false);
+  initRestDrag();
+  resumeRestTimer(); // timer que estava rodando quando o app fechou/minimizou
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) resumeRestTimer(); });
   if (logged) { await enterApp(); }
   else {
     showScreen('auth');
@@ -512,37 +515,100 @@ function openExercise(i) {
 }
 
 /* timer de descanso flutuante: aparece sozinho ao concluir uma série,
-   não bloqueia a tela — dá pra mexer no app enquanto descansa */
+   não bloqueia a tela — dá pra mexer no app enquanto descansa.
+   Contagem por timestamp (endAt) + salva no localStorage: continua certa
+   mesmo com o app minimizado ou se a página recarregar. */
 let restTimer = null;
+const REST_KEY = 'cn_rest_timer';
+function restLeft() { return restTimer ? Math.max(0, Math.ceil((restTimer.endAt - Date.now()) / 1000)) : 0; }
+function persistRest() {
+  try {
+    if (restTimer) localStorage.setItem(REST_KEY, JSON.stringify({ endAt: restTimer.endAt, total: restTimer.total, label: restTimer.label }));
+    else localStorage.removeItem(REST_KEY);
+  } catch (e) {}
+}
 function startRestTimer(secs, label) {
   secs = Math.max(5, parseInt(secs, 10) || 180);
   stopRestTimer();
   const bar = $('#restbar'); if (!bar) return;
-  restTimer = { left: secs, total: secs, label: label || 'Descanso', int: null };
+  restTimer = { endAt: Date.now() + secs * 1000, total: secs, label: label || 'Descanso', int: null };
+  persistRest();
   bar.classList.remove('hidden');
   paintRest();
-  restTimer.int = setInterval(() => {
-    if (!restTimer) return;
-    restTimer.left--;
-    if (restTimer.left <= 0) {
-      stopRestTimer(); beep();
-      try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) {}
-      toast('Descanso terminado! Bora 💪🔥');
-      return;
-    }
-    paintRest();
-  }, 1000);
+  restTimer.int = setInterval(restTick, 250);
+}
+function restTick() {
+  if (!restTimer) return;
+  if (restLeft() <= 0) {
+    stopRestTimer(); beep();
+    try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) {}
+    toast('Descanso terminado! Bora 💪🔥');
+    return;
+  }
+  paintRest();
 }
 function paintRest() {
   const r = restTimer; if (!r) return;
-  const t = $('#rest-time'); if (t) t.textContent = fmtT(Math.max(0, r.left));
+  const left = restLeft();
+  const t = $('#rest-time'); if (t) t.textContent = fmtT(left);
   const lb = $('#rest-label'); if (lb) lb.textContent = '⏱ ' + r.label;
-  const fg = $('#rest-fg'); if (fg) fg.style.width = (100 * Math.max(0, r.left) / r.total) + '%';
+  const fg = $('#rest-fg'); if (fg) fg.style.width = (100 * left / r.total) + '%';
 }
 function stopRestTimer() {
   if (restTimer && restTimer.int) clearInterval(restTimer.int);
   restTimer = null;
+  persistRest();
   const bar = $('#restbar'); if (bar) bar.classList.add('hidden');
+}
+// se o app foi minimizado/fechado no meio do descanso, restaura o timer ao voltar
+function resumeRestTimer() {
+  if (restTimer) { paintRest(); return; }
+  try {
+    const raw = localStorage.getItem(REST_KEY); if (!raw) return;
+    const s = JSON.parse(raw);
+    const left = Math.ceil((s.endAt - Date.now()) / 1000);
+    if (left <= 0) { localStorage.removeItem(REST_KEY); return; }
+    const bar = $('#restbar'); if (!bar) return;
+    restTimer = { endAt: s.endAt, total: s.total || left, label: s.label || 'Descanso', int: null };
+    bar.classList.remove('hidden');
+    paintRest();
+    restTimer.int = setInterval(restTick, 250);
+  } catch (e) {}
+}
+/* pílula arrastável: dá pra mover o timer pra qualquer canto da tela */
+function initRestDrag() {
+  const bar = $('#restbar'), pill = $('#rest-pill');
+  if (!bar || !pill || bar.dataset.dragInit) return;
+  bar.dataset.dragInit = '1';
+  try {
+    const p = JSON.parse(localStorage.getItem('cn_rest_pos') || 'null');
+    if (p && p.x) { bar.style.left = p.x; bar.style.top = p.y; bar.style.right = 'auto'; bar.style.bottom = 'auto'; }
+  } catch (e) {}
+  pill.addEventListener('pointerdown', e => {
+    if (e.target.closest('.rest-btn')) return;
+    e.preventDefault();
+    const r = bar.getBoundingClientRect();
+    const sx = e.clientX, sy = e.clientY, bx = r.left, by = r.top;
+    let moved = false;
+    try { pill.setPointerCapture(e.pointerId); } catch (err) {}
+    const mv = ev => {
+      const dx = ev.clientX - sx, dy = ev.clientY - sy;
+      if (Math.abs(dx) + Math.abs(dy) > 8) moved = true;
+      if (!moved) return;
+      bar.style.left = Math.min(Math.max(4, bx + dx), window.innerWidth - r.width - 4) + 'px';
+      bar.style.top = Math.min(Math.max(4, by + dy), window.innerHeight - r.height - 4) + 'px';
+      bar.style.right = 'auto'; bar.style.bottom = 'auto';
+    };
+    const up = () => {
+      pill.removeEventListener('pointermove', mv);
+      pill.removeEventListener('pointerup', up);
+      pill.removeEventListener('pointercancel', up);
+      if (moved) { try { localStorage.setItem('cn_rest_pos', JSON.stringify({ x: bar.style.left, y: bar.style.top })); } catch (err) {} }
+    };
+    pill.addEventListener('pointermove', mv);
+    pill.addEventListener('pointerup', up);
+    pill.addEventListener('pointercancel', up);
+  });
 }
 function fmtT(s){ return pad(Math.floor(s/60)) + ':' + pad(s%60); }
 function beep(){
@@ -1504,7 +1570,7 @@ document.addEventListener('DOMContentLoaded', boot);
 /* botoes do timer de descanso flutuante */
 document.addEventListener('click', e => {
   if (e.target && e.target.id === 'rest-plus' && restTimer) {
-    restTimer.left += 30; restTimer.total += 30; paintRest();
+    restTimer.endAt += 30000; restTimer.total += 30; persistRest(); paintRest();
   }
   if (e.target && e.target.id === 'rest-stop') stopRestTimer();
 });

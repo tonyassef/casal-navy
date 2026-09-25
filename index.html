@@ -99,13 +99,13 @@
   </nav>
 </div>
 
-<!-- timer de descanso flutuante -->
+<!-- timer de descanso: pílula flutuante arrastável -->
 <div id="restbar" class="restbar hidden">
-  <div class="row">
-    <div style="flex:1"><div id="rest-label" class="rest-label">⏱ Descanso</div>
-    <div id="rest-time">3:00</div></div>
-    <button class="btn small" id="rest-plus">+30s</button>
-    <button class="btn small" id="rest-stop">Parar</button>
+  <div class="rest-pill" id="rest-pill">
+    <span id="rest-label" class="rest-label">⏱ Descanso</span>
+    <span id="rest-time">3:00</span>
+    <button class="rest-btn" id="rest-plus">+30s</button>
+    <button class="rest-btn" id="rest-stop">✕</button>
   </div>
   <div class="rest-track"><div id="rest-fg"></div></div>
 </div>
@@ -118,6 +118,6 @@
 <script src="js/history_seed.js"></script>
 <script src="js/sb.js"></script>
 <script src="js/store.js"></script>
-<script src="js/app.js?v=31"></script>
+<script src="js/app.js?v=32"></script>
 </body>
 </html>
