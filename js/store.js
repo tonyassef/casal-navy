@@ -535,7 +535,7 @@ const Store = {
     return true;
   },
 
-  // ---------- check-in na academia ----------
+  // ---------- check-in / check-out na academia ----------
   async getCheckins() {
     if (this.mode === 'cloud') {
       try {
@@ -556,6 +556,20 @@ const Store = {
     const arr = this._ls(k) || [];
     const row = { id: this.uid(), user_id: this.user.id, user_name: this.user.name,
       created_at: new Date().toISOString() };
+    arr.unshift(row); this._ls(k, arr);
+    return row;
+  },
+  async doCheckout() {
+    if (this.mode === 'cloud') {
+      const rows = await SB.ins('gym_checkins', {
+        user_id: this.user.id, user_name: this.user.name, type: 'out',
+      });
+      return rows && rows[0];
+    }
+    const k = 'checkins.' + this.user.id;
+    const arr = this._ls(k) || [];
+    const row = { id: this.uid(), user_id: this.user.id, user_name: this.user.name,
+      type: 'out', created_at: new Date().toISOString() };
     arr.unshift(row); this._ls(k, arr);
     return row;
   },

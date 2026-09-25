@@ -79,10 +79,11 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // ---------- check-in na academia: avisa o outro do casal ----------
+    // ---------- check-in / check-out na academia: avisa o outro do casal ----------
     if (table === "gym_checkins") {
       const fromId = String(rec.user_id || "");
       const fromName = String(rec.user_name || "").trim() || "Seu amor";
+      const isOut = String(rec.type || "in") === "out";
       if (!fromId) return json({ skipped: "empty" });
       const { data: profiles, error: pErr } = await supabase.from("profiles").select("id");
       if (pErr) throw pErr;
@@ -90,13 +91,12 @@ serve(async (req) => {
         .map((p: { id: string }) => p.id)
         .filter((id: string) => id && id !== fromId);
       if (!targets.length) return json({ skipped: "no-recipient" });
-      const r = await pushToUserIds(
-        supabase,
-        targets,
-        "💪 Check-in na academia",
-        `${fromName} chegou na academia! Bora treinar 🔥`,
-      );
-      return json({ kind: "checkin", ...r });
+      const title = isOut ? "🏁 Check-out da academia" : "💪 Check-in na academia";
+      const body = isOut
+        ? `${fromName} saiu da academia! Treino pago? 💪😌`
+        : `${fromName} chegou na academia! Bora treinar 🔥`;
+      const r = await pushToUserIds(supabase, targets, title, body);
+      return json({ kind: isOut ? "checkout" : "checkin", ...r });
     }
 
     // ---------- recadinhos: novo recado ou resposta ----------

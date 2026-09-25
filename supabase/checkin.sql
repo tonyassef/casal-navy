@@ -7,10 +7,12 @@
 -- ============================================================
 
 -- ---------- check-ins na academia ----------
+-- type: 'in' (chegada) ou 'out' (saída); cada evento é uma linha
 create table if not exists gym_checkins (
   id uuid primary key default gen_random_uuid(),
   user_id uuid not null references profiles(id) on delete cascade,
   user_name text not null default '',
+  type text not null default 'in',
   created_at timestamptz not null default now()
 );
 create index if not exists gym_checkins_user_time_idx on gym_checkins(user_id, created_at desc);

@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v29'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v30'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -1046,40 +1046,62 @@ function hhmm(iso) {
   const d = new Date(iso);
   return pad(d.getHours()) + ':' + pad(d.getMinutes());
 }
-// Cartão de check-in no topo do Hoje: mostra quem já chegou (eu + o outro) e o botão pra marcar presença.
-// Ao fazer check-in, o outro recebe push no celular na hora 📲.
+// Cartão de check-in/check-out no topo do Hoje: mostra quem já chegou e quem já
+// saiu (eu + o outro) e o botão pra marcar presença. Check-in e check-out avisam
+// o outro no celular na hora 📲.
 function checkinCard() {
   if (!Store.user || S.todayDate !== todayISO()) return '';
   const mine = String(Store.user.id);
   const myName = String(Store.user.name || 'Você');
   const today = (S.checkins || []).filter(c => isTodayISO(c.created_at));
-  const myCk = today.find(c => String(c.user_id) === mine);
-  const other = today.find(c => String(c.user_id) !== mine);
-  const otherName = other ? String(other.user_name || 'Seu amor') : (partnerDefault() || 'Seu amor');
-  const row = (name, ck) => `<div class="checkin-row"><b>${esc(name)}</b><span>${
-    ck ? '✅ ' + esc(hhmm(ck.created_at)) : '⏳ ainda não chegou'}</span></div>`;
+  const isIn = c => (c.type || 'in') === 'in';
+  const myIn = today.find(c => String(c.user_id) === mine && isIn(c));
+  const myOut = today.find(c => String(c.user_id) === mine && c.type === 'out');
+  const otherIn = today.find(c => String(c.user_id) !== mine && isIn(c));
+  const otherId = otherIn ? otherIn.user_id
+    : (today.find(c => String(c.user_id) !== mine) || {}).user_id;
+  const otherOut = otherId
+    ? today.find(c => String(c.user_id) === String(otherId) && c.type === 'out') : null;
+  const otherName = otherIn ? String(otherIn.user_name || 'Seu amor') : (partnerDefault() || 'Seu amor');
+  const row = (name, ckIn, ckOut) => `<div class="checkin-row"><b>${esc(name)}</b><span>${
+    ckIn ? '✅ ' + esc(hhmm(ckIn.created_at)) + (ckOut ? ' → 🏁 ' + esc(hhmm(ckOut.created_at)) : '')
+         : '⏳ ainda não chegou'}</span></div>`;
+  let action = '';
+  if (!myIn) action = `<button class="btn primary" id="btn-checkin" style="margin-top:8px">Fazer check-in 💪</button>`;
+  else if (!myOut) action = `<button class="btn primary" id="btn-checkout" style="margin-top:8px">Fazer check-out 🏁</button>`;
+  else action = `<div class="sub" style="margin-top:6px">✅ Treino de hoje registrado de ponta a ponta! 💪🔥</div>`;
   return `<div class="card checkin-card">
     <div class="checkin-head"><b>🏋️ Check-in na academia</b></div>
-    ${row(myName, myCk)}
-    ${row(otherName, other)}
-    ${myCk
-      ? `<div class="sub" style="margin-top:6px">✅ Você já fez check-in hoje! ${other ? 'Bora treinar juntos 💪🔥' : 'O outro já foi avisado no celular 📲'}</div>`
-      : `<button class="btn primary" id="btn-checkin" style="margin-top:8px">Fazer check-in 💪</button>`}
+    ${row(myName, myIn, myOut)}
+    ${row(otherName, otherIn, otherOut)}
+    ${action}
   </div>`;
 }
 function wireCheckinCard() {
-  const b = $('#btn-checkin');
-  if (!b) return;
-  b.addEventListener('click', async () => {
-    b.disabled = true; b.textContent = 'Fazendo check-in… 💪';
+  const bi = $('#btn-checkin');
+  if (bi) bi.addEventListener('click', async () => {
+    bi.disabled = true; bi.textContent = 'Fazendo check-in… 💪';
     try {
       await Store.doCheckin();
       S.checkins = await Store.getCheckins();
       renderHoje();
       toast('Check-in feito! 💪 O outro foi avisado no celular 📲');
     } catch (e) {
-      b.disabled = false; b.textContent = 'Fazer check-in 💪';
+      bi.disabled = false; bi.textContent = 'Fazer check-in 💪';
       toast(e.message || 'Não deu pra fazer check-in 😕');
+    }
+  });
+  const bo = $('#btn-checkout');
+  if (bo) bo.addEventListener('click', async () => {
+    bo.disabled = true; bo.textContent = 'Fazendo check-out… 🏁';
+    try {
+      await Store.doCheckout();
+      S.checkins = await Store.getCheckins();
+      renderHoje();
+      toast('Check-out feito! 🏁 Bom descanso 😌');
+    } catch (e) {
+      bo.disabled = false; bo.textContent = 'Fazer check-out 🏁';
+      toast(e.message || 'Não deu pra fazer check-out 😕');
     }
   });
 }
