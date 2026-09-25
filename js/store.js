@@ -278,6 +278,26 @@ const Store = {
   },
   _tplStamp() { try { return this._ls('planTplV.' + this.user.id) || 0; } catch (e) { return 0; } },
   _tplStampSet(v) { try { this._ls('planTplV.' + this.user.id, v); } catch (e) {} },
+  // patch cirúrgico de plano (25/09/2026, pedido do Antonio): Plano A —
+  // Rosca Scott sozinha (longe da polia); o super-set tríceps+bíceps na corda
+  // passa pra Rosca Martelo na Polia (tudo na polia, mesmo lugar).
+  // Só mexe nesses dois campos de técnica; cargas, séries e histórico intactos.
+  // Roda uma única vez por conta; em plano sem esses exercícios não faz nada.
+  _planPatchStamp() { try { return parseInt(this._ls('planPatchV.' + this.user.id) || '0', 10); } catch (e) { return 0; } },
+  _planPatchStampSet(v) { try { this._ls('planPatchV.' + this.user.id, String(v)); } catch (e) {} },
+  _applyPlanPatch(pl) {
+    if (!pl || this._planPatchStamp() >= 1) return false;
+    this._planPatchStampSet(1);
+    let changed = false;
+    try {
+      const dA = (pl.days || []).find(d => d.day === 'Plano A');
+      ((dA && dA.exercises) || []).forEach(e => {
+        if (e.nameA === 'Rosca Scott na Máquina' && e.technique) { e.technique = ''; changed = true; }
+        if (e.nameA === 'Rosca Martelo na Polia' && e.technique !== 'Super-set com Tríceps Corda na Polia') { e.technique = 'Super-set com Tríceps Corda na Polia'; changed = true; }
+      });
+    } catch (e) {}
+    return changed;
+  },
   _needsTplMigrate(pl) {
     if (!pl) return false;
     if ((pl.tpl_v || 0) >= PLAN_TPL_V || this._tplStamp() >= PLAN_TPL_V) return false;
@@ -308,6 +328,9 @@ const Store = {
           this._tplStampSet(PLAN_TPL_V);
         }
         this._setCache(Object.assign(this._cache() || {}, { plan: pl }));
+        if (pl.id && this._applyPlanPatch(pl)) {
+          try { await SB.upd('plans', '?id=eq.' + pl.id, { days: pl.days, updated_at: new Date().toISOString() }); } catch (e) {}
+        }
         return pl;
       } catch (e) {
         if (!this._queueable(e)) throw e;
@@ -324,6 +347,7 @@ const Store = {
       if (keepId) d.plan.id = keepId;
       this._saveData(d); this._tplStampSet(PLAN_TPL_V);
     }
+    if (this._applyPlanPatch(d.plan)) this._saveData(d);
     return d.plan;
   },
 

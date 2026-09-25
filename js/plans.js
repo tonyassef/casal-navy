@@ -341,7 +341,7 @@ const PLAN_6DAY = [
     "nameB": "Rosca Direta com Halteres",
     "sets": "3",
     "reps": "10-12",
-    "technique": "Super-set com Tríceps Corda na Polia",
+    "technique": "",
     "rest": "3 min"
    },
    {
@@ -349,7 +349,7 @@ const PLAN_6DAY = [
     "nameB": "Rosca Martelo com Halteres",
     "sets": "3",
     "reps": "12-15",
-    "technique": "",
+    "technique": "Super-set com Tríceps Corda na Polia",
     "rest": "3 min"
    }
   ]
