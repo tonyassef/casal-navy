@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v28'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v29'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -85,6 +85,8 @@ const S = {
   todayIdx: 0, todayDate: todayISO(),
   editPlan: false,
   notes: [],             // recadinhos do casal
+  checkins: [],          // check-ins na academia
+  reactions: [],         // curtidas com emoji nos recados
 };
 function fmtDT(iso) {
   if (!iso) return '';
@@ -207,6 +209,8 @@ async function enterApp() {
   S.logs = await Store.getLogs();
   S.meta = await Store.getMeta();
   try { S.notes = await Store.getNotes(); } catch (e) { S.notes = []; }
+  try { S.checkins = await Store.getCheckins(); } catch (e) { S.checkins = []; }
+  try { S.reactions = await Store.getReactions(); } catch (e) { S.reactions = []; }
   await loadDraft();
   S.todayDate = todayISO();
   const n = S.plan.days.length || 1;
@@ -304,7 +308,7 @@ function renderHoje() {
   const viewedDone = !!latestTodayLog();
   const doneToday = (S.todayDate === todayISO()) && viewedDone;
 
-  let h = profileBar() + noteBanner() + deloadBanner() + (offline
+  let h = profileBar() + checkinCard() + noteBanner() + deloadBanner() + (offline
     ? `<div class="card" style="border-color:var(--gold)"><div class="sub">📶 <b>Sem internet</b> — pode treinar normal, tudo sincroniza quando o sinal voltar.</div></div>`
     : '')
     + `<div class="card"><div class="day-head">
@@ -336,6 +340,7 @@ function renderHoje() {
         <button class="btn" id="btn-discard" style="${isDraftDay?'':'display:none'}">Descartar rascunho</button>`;
   $('#hoje-content').innerHTML = h;
   $('#hoje-date').textContent = weekdayBR(S.todayDate);
+  wireCheckinCard();
 
   $('#btn-spotify').addEventListener('click', () => {
     window.open((S.meta && S.meta.spotify_playlist) || DEFAULT_SPOTIFY, '_blank');
@@ -885,16 +890,59 @@ function pushCard() {
     ${iosHint}
   </div>`;
 }
+const REACT_EMOJIS = ['❤️', '😂', '🔥', '💪', '😮', '👏', '🥰'];
 function renderRecados() {
-  const me = String(Store.user && Store.user.name || '').toLowerCase();
-  const mine = (S.notes || []).filter(n => String(n.from_user_id) === String(Store.user && Store.user.id));
-  const received = (S.notes || []).filter(n => String(n.from_user_id) !== String(Store.user && Store.user.id));
+  const myId = String(Store.user && Store.user.id);
+  const tops = (S.notes || []).filter(n => !n.parent_id);
+  const mine = tops.filter(n => String(n.from_user_id) === myId);
+  const received = tops.filter(n => String(n.from_user_id) !== myId);
+  const repliesOf = id => (S.notes || []).filter(n => String(n.parent_id) === String(id));
+  const reactsOf = id => (S.reactions || []).filter(r => String(r.note_id) === String(id));
+  // linha de curtidas com contagem; tocar alterna a sua
+  const reactionsRow = n => {
+    const rs = reactsOf(n.id);
+    if (!rs.length) return '';
+    const groups = {};
+    rs.forEach(r => { (groups[r.emoji] = groups[r.emoji] || []).push(r); });
+    return `<div class="reactions">` + Object.keys(groups).map(e => {
+      const g = groups[e];
+      const iReacted = g.some(r => String(r.user_id) === myId);
+      const names = g.map(r => r.user_name).filter(Boolean).join(', ');
+      return `<button class="react-chip${iReacted ? ' on' : ''}" data-react="${esc(n.id)}" data-emoji="${esc(e)}" title="${esc(names)}">${esc(e)} ${g.length}</button>`;
+    }).join('') + `</div>`;
+  };
+  const reactPicker = n => `<div class="react-picker hidden" id="rp-${esc(n.id)}">${
+    REACT_EMOJIS.map(e => `<button class="react-opt" data-react="${esc(n.id)}" data-emoji="${esc(e)}">${e}</button>`).join('')
+  }</div>`;
+  const actionsRow = (n, withReply) => {
+    const canDel = String(n.from_user_id) === myId;
+    return `<div class="note-actions">
+      ${withReply ? `<button class="linklike" data-reply-toggle="${esc(n.id)}">↩️ responder</button>` : ''}
+      <button class="linklike" data-react-toggle="${esc(n.id)}">😊 curtir</button>
+      ${canDel ? `<button class="linklike danger" data-del="${esc(n.id)}">apagar</button>` : ''}
+    </div>`;
+  };
+  const replyCard = r => `<div class="note reply">
+      <div class="note-head"><b>↩️ ${esc(r.from_name || '❤️')}</b><span>${esc(fmtDT(r.created_at))}</span></div>
+      <div class="note-msg">${esc(r.message)}</div>
+      ${reactionsRow(r)}
+      ${actionsRow(r, false)}
+      ${reactPicker(r)}
+    </div>`;
   const noteCard = n => {
-    const canDel = String(n.from_user_id) === String(Store.user && Store.user.id);
+    const canDel = String(n.from_user_id) === myId;
+    const toName = String(n.from_user_id) === myId ? (n.to_name || partnerDefault()) : (n.from_name || '❤️');
     return `<div class="note ${canDel ? 'sent' : 'got'}">
       <div class="note-head"><b>💌 ${esc(n.from_name || '❤️')}</b><span>${esc(fmtDT(n.created_at))}</span></div>
       <div class="note-msg">${esc(n.message)}</div>
-      ${canDel ? `<button class="btn small danger note-del" data-id="${esc(n.id)}">Apagar</button>` : ''}
+      ${reactionsRow(n)}
+      ${actionsRow(n, true)}
+      ${reactPicker(n)}
+      <div class="reply-form hidden" id="rf-${esc(n.id)}">
+        <textarea rows="2" maxlength="500" placeholder="Responder pra ${esc(toName)}…"></textarea>
+        <button class="btn small primary" data-reply-send="${esc(n.id)}">Responder ↩️</button>
+      </div>
+      ${repliesOf(n.id).map(replyCard).join('')}
     </div>`;
   };
   $('#recados-content').innerHTML = `
@@ -925,10 +973,39 @@ function renderRecados() {
       toast('Recadinho enviado! 💌');
     } catch (e) { toast(e.message || 'Não deu pra enviar 😕'); }
   });
-  $$('#recados-content .note-del').forEach(b => b.addEventListener('click', async () => {
+  $$('#recados-content [data-reply-toggle]').forEach(b => b.addEventListener('click', () => {
+    $('#rf-' + b.dataset.replyToggle).classList.toggle('hidden');
+  }));
+  $$('#recados-content [data-reply-send]').forEach(b => b.addEventListener('click', async () => {
+    const pid = b.dataset.replySend;
+    const parent = (S.notes || []).find(n => String(n.id) === String(pid));
+    const ta = document.querySelector('#rf-' + pid + ' textarea');
+    const msg = ((ta && ta.value) || '').trim();
+    if (!msg) { toast('Escreve a resposta primeiro 😊'); return; }
+    const toName = (parent && String(parent.from_user_id) !== myId && parent.from_name)
+      ? parent.from_name : partnerDefault();
+    b.disabled = true;
+    try {
+      await Store.saveNote(toName, msg, pid);
+      S.notes = await Store.getNotes();
+      renderRecados();
+      toast('Resposta enviada! ↩️💌');
+    } catch (e) { b.disabled = false; toast(e.message || 'Não deu pra responder 😕'); }
+  }));
+  $$('#recados-content [data-react-toggle]').forEach(b => b.addEventListener('click', () => {
+    $('#rp-' + b.dataset.reactToggle).classList.toggle('hidden');
+  }));
+  $$('#recados-content [data-react]').forEach(b => b.addEventListener('click', async () => {
+    try {
+      await Store.toggleReaction(b.dataset.react, b.dataset.emoji);
+      S.reactions = await Store.getReactions();
+      renderRecados();
+    } catch (e) { toast(e.message || 'Não deu pra curtir 😕'); }
+  }));
+  $$('#recados-content [data-del]').forEach(b => b.addEventListener('click', async () => {
     if (!confirm('Apagar este recado?')) return;
-    await Store.deleteNote(b.dataset.id);
-    S.notes = await Store.getNotes();
+    await Store.deleteNote(b.dataset.del);
+    S.notes = await Store.getNotes(); S.reactions = await Store.getReactions();
     renderRecados(); renderHoje();
   }));
   const pe = $('#push-enable');
@@ -957,6 +1034,54 @@ function noteBanner() {
 function wireNoteBanner() {
   const g = $('#note-goto');
   if (g) g.addEventListener('click', () => { showScreen('recados'); renderRecados(); });
+}
+
+/* ---------- check-in na academia ---------- */
+function isTodayISO(iso) {
+  if (!iso) return false;
+  const d = new Date(iso), t = new Date();
+  return d.getFullYear() === t.getFullYear() && d.getMonth() === t.getMonth() && d.getDate() === t.getDate();
+}
+function hhmm(iso) {
+  const d = new Date(iso);
+  return pad(d.getHours()) + ':' + pad(d.getMinutes());
+}
+// Cartão de check-in no topo do Hoje: mostra quem já chegou (eu + o outro) e o botão pra marcar presença.
+// Ao fazer check-in, o outro recebe push no celular na hora 📲.
+function checkinCard() {
+  if (!Store.user || S.todayDate !== todayISO()) return '';
+  const mine = String(Store.user.id);
+  const myName = String(Store.user.name || 'Você');
+  const today = (S.checkins || []).filter(c => isTodayISO(c.created_at));
+  const myCk = today.find(c => String(c.user_id) === mine);
+  const other = today.find(c => String(c.user_id) !== mine);
+  const otherName = other ? String(other.user_name || 'Seu amor') : (partnerDefault() || 'Seu amor');
+  const row = (name, ck) => `<div class="checkin-row"><b>${esc(name)}</b><span>${
+    ck ? '✅ ' + esc(hhmm(ck.created_at)) : '⏳ ainda não chegou'}</span></div>`;
+  return `<div class="card checkin-card">
+    <div class="checkin-head"><b>🏋️ Check-in na academia</b></div>
+    ${row(myName, myCk)}
+    ${row(otherName, other)}
+    ${myCk
+      ? `<div class="sub" style="margin-top:6px">✅ Você já fez check-in hoje! ${other ? 'Bora treinar juntos 💪🔥' : 'O outro já foi avisado no celular 📲'}</div>`
+      : `<button class="btn primary" id="btn-checkin" style="margin-top:8px">Fazer check-in 💪</button>`}
+  </div>`;
+}
+function wireCheckinCard() {
+  const b = $('#btn-checkin');
+  if (!b) return;
+  b.addEventListener('click', async () => {
+    b.disabled = true; b.textContent = 'Fazendo check-in… 💪';
+    try {
+      await Store.doCheckin();
+      S.checkins = await Store.getCheckins();
+      renderHoje();
+      toast('Check-in feito! 💪 O outro foi avisado no celular 📲');
+    } catch (e) {
+      b.disabled = false; b.textContent = 'Fazer check-in 💪';
+      toast(e.message || 'Não deu pra fazer check-in 😕');
+    }
+  });
 }
 
 /* ---------- semana de regeneração (deload a cada 8 semanas) ---------- */

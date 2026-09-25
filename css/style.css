@@ -179,3 +179,27 @@ canvas.chart{width:100%;height:220px;background:var(--surface);border:1px solid 
 .note .note-del{margin-top:8px;}
 .note-banner{background:linear-gradient(135deg,#ffeef5,#fff);border:1px solid #f3c6da;}
 .sec-t{font-size:15px;margin:14px 2px 8px;color:var(--accent-d);}
+
+/* check-in na academia */
+.checkin-card{background:linear-gradient(135deg,#eef7ff,#fff);border:1px solid #bcd9f7;}
+.checkin-head{font-size:15px;margin-bottom:6px;}
+.checkin-row{display:flex;justify-content:space-between;align-items:center;font-size:14px;
+  padding:6px 2px;border-top:1px dashed var(--line);}
+.checkin-row:first-of-type{border-top:none;}
+
+/* recados: respostas, curtidas */
+.note.reply{margin:8px 0 2px 14px;background:var(--surface);border-left:3px solid var(--accent);}
+.note-actions{display:flex;gap:14px;margin-top:8px;}
+.linklike{border:none;background:none;color:var(--accent-d);font-size:13px;padding:2px 0;cursor:pointer;}
+.linklike.danger{color:#c0392b;}
+.reactions{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;}
+.react-chip{border:1px solid var(--line);background:var(--card2);border-radius:999px;
+  padding:4px 10px;font-size:13px;cursor:pointer;}
+.react-chip.on{border-color:var(--accent);background:#e8f3ff;}
+.react-picker{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;background:var(--surface);
+  border:1px solid var(--line);border-radius:10px;padding:8px;}
+.react-opt{border:none;background:var(--card2);border-radius:10px;font-size:20px;padding:6px 10px;cursor:pointer;}
+.reply-form{margin-top:8px;}
+.reply-form textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;
+  font-size:14px;font-family:inherit;color:var(--text);background:var(--surface);resize:vertical;}
+.reply-form .btn{margin-top:6px;}

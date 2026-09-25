@@ -470,27 +470,94 @@ const Store = {
     }
     return this._ls('notes.' + this.user.id) || [];
   },
-  async saveNote(toName, message) {
+  async saveNote(toName, message, parentId) {
     toName = (toName || '').trim(); message = (message || '').trim();
     if (!toName || !message) throw new Error('Escreva para quem é e a mensagem. 💌');
     if (this.mode === 'cloud') {
       const rows = await SB.ins('couple_notes', {
         from_user_id: this.user.id, from_name: this.user.name,
         to_name: toName, message: message.slice(0, 500),
+        parent_id: parentId || null,
       });
       return rows && rows[0];
     }
     const k = 'notes.' + this.user.id;
     const arr = this._ls(k) || [];
     const row = { id: this.uid(), from_user_id: this.user.id, from_name: this.user.name,
-      to_name: toName, message: message.slice(0, 500), created_at: new Date().toISOString() };
+      to_name: toName, message: message.slice(0, 500), parent_id: parentId || null,
+      created_at: new Date().toISOString() };
     arr.unshift(row); this._ls(k, arr);
     return row;
   },
   async deleteNote(id) {
     if (this.mode === 'cloud') { try { await SB.del('couple_notes', '?id=eq.' + id); } catch (e) {} return; }
     const k = 'notes.' + this.user.id;
-    this._ls(k, (this._ls(k) || []).filter(x => x.id !== id));
+    const kill = new Set([id]);
+    // apaga junto respostas e curtidas do recado (modo local)
+    (this._ls(k) || []).forEach(x => { if (x.parent_id && kill.has(x.parent_id)) kill.add(x.id); });
+    this._ls(k, (this._ls(k) || []).filter(x => !kill.has(x.id)));
+    this._ls('reactions.' + this.user.id, (this._ls('reactions.' + this.user.id) || []).filter(r => !kill.has(r.note_id)));
+  },
+
+  // ---------- curtidas com emoji nos recados ----------
+  async getReactions() {
+    if (this.mode === 'cloud') {
+      try {
+        const r = await SB.sel('note_reactions', '?select=*&order=created_at.asc&limit=500');
+        return r || [];
+      } catch (e) { return []; }
+    }
+    return this._ls('reactions.' + this.user.id) || [];
+  },
+  async toggleReaction(noteId, emoji) {
+    if (this.mode === 'cloud') {
+      const q = '?note_id=eq.' + encodeURIComponent(noteId)
+        + '&user_id=eq.' + encodeURIComponent(this.user.id)
+        + '&emoji=eq.' + encodeURIComponent(emoji);
+      const existing = await SB.sel('note_reactions', q + '&select=id&limit=1').catch(() => []);
+      if (existing && existing.length) {
+        await SB.del('note_reactions', q).catch(() => {});
+        return false; // removeu
+      }
+      try {
+        await SB.ins('note_reactions', { note_id: noteId, user_id: this.user.id,
+          user_name: this.user.name, emoji });
+      } catch (e) { /* ja existia */ }
+      return true; // adicionou
+    }
+    const k = 'reactions.' + this.user.id;
+    const arr = this._ls(k) || [];
+    const i = arr.findIndex(r => r.note_id === noteId && r.user_id === this.user.id && r.emoji === emoji);
+    if (i >= 0) { arr.splice(i, 1); this._ls(k, arr); return false; }
+    arr.push({ id: this.uid(), note_id: noteId, user_id: this.user.id,
+      user_name: this.user.name, emoji, created_at: new Date().toISOString() });
+    this._ls(k, arr);
+    return true;
+  },
+
+  // ---------- check-in na academia ----------
+  async getCheckins() {
+    if (this.mode === 'cloud') {
+      try {
+        const r = await SB.sel('gym_checkins', '?select=*&order=created_at.desc&limit=60');
+        return r || [];
+      } catch (e) { return []; }
+    }
+    return this._ls('checkins.' + this.user.id) || [];
+  },
+  async doCheckin() {
+    if (this.mode === 'cloud') {
+      const rows = await SB.ins('gym_checkins', {
+        user_id: this.user.id, user_name: this.user.name,
+      });
+      return rows && rows[0];
+    }
+    const k = 'checkins.' + this.user.id;
+    const arr = this._ls(k) || [];
+    const row = { id: this.uid(), user_id: this.user.id, user_name: this.user.name,
+      created_at: new Date().toISOString() };
+    arr.unshift(row); this._ls(k, arr);
+    return row;
   },
 
   // ---------- push notifications (recadinhos) ----------
