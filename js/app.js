@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v34'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v35'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -385,6 +385,12 @@ function ensureDraft() {
   if (!S.draft || S.draft.dayIdx !== S.todayIdx || S.draft.logDate !== S.todayDate) {
     S.draft = { dayIdx: S.todayIdx, logDate: S.todayDate, entries: {}, notes: '' };
     saveDraft();
+    // marca o início do treino (pra duração no "treino pago") assim que o
+    // rascunho nasce — vale pra qualquer fluxo, não só abrindo exercício
+    try {
+      const wk = 'wstart.' + (Store.user && Store.user.id) + '.' + S.draft.logDate;
+      if (!localStorage.getItem(wk)) localStorage.setItem(wk, String(Date.now()));
+    } catch (e) {}
   }
 }
 
@@ -641,7 +647,19 @@ async function finishWorkout() {
     let durMin = 0;
     try {
       const t0 = parseInt(localStorage.getItem(wk) || '0', 10);
-      if (t0) durMin = Math.max(1, Math.round((Date.now() - t0) / 60000));
+      if (t0) {
+        durMin = Math.max(1, Math.round((Date.now() - t0) / 60000));
+      } else {
+        // reserva: check-in na academia de hoje (chegada → agora)
+        try {
+          const mine = String(Store.user && Store.user.id);
+          const ck = (S.checkins || []).find(c => String(c.user_id) === mine && isTodayISO(c.created_at) && (c.type || 'in') === 'in');
+          if (ck && ck.created_at) {
+            const t1 = new Date(ck.created_at).getTime();
+            if (t1) durMin = Math.max(1, Math.round((Date.now() - t1) / 60000));
+          }
+        } catch (e2) {}
+      }
       localStorage.removeItem(wk);
     } catch (e) {}
     const summary = { log_date: S.draft.logDate, day_label: dayLabel(d),
@@ -655,12 +673,19 @@ async function finishWorkout() {
     const nx = (((S.todayIdx + 1) % nn) + nn) % nn;
     renderHoje(); renderHistorico(); renderDesafios();
     savedToast('Treino salvo! Amanhã: ' + dayLabel(S.plan.days[nx]) + ' 💪');
-    openShareCard(Object.assign({}, summary, { streak }));
+    openShareCard(Object.assign({}, summary, { streak, entries }));
   } catch(e){ toast('Erro ao salvar: ' + e.message); }
 }
 
 /* ================= CARTÃO "TREINO PAGO" 📸 ================= */
 // Gera uma imagem bonita com o resumo do treino pra compartilhar no story.
+function fmtDur(min) {
+  min = Math.round(+min || 0);
+  if (min <= 0) return '—';
+  if (min < 60) return min + ' min';
+  const h = Math.floor(min / 60), m = min % 60;
+  return m ? h + 'h ' + m + 'min' : h + 'h';
+}
 function shareCardCanvas(o) {
   const W = 1080, H = 1350, cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
@@ -668,36 +693,69 @@ function shareCardCanvas(o) {
   const g = x.createLinearGradient(0, 0, W, H);
   g.addColorStop(0, '#0b2a4a'); g.addColorStop(1, '#1b5c9e');
   x.fillStyle = g; x.fillRect(0, 0, W, H);
-  // brilho decorativo
-  const rg = x.createRadialGradient(W/2, 320, 40, W/2, 320, 520);
+  // brilhos decorativos
+  const rg = x.createRadialGradient(W/2, 260, 40, W/2, 260, 520);
   rg.addColorStop(0, 'rgba(159,208,245,.28)'); rg.addColorStop(1, 'rgba(159,208,245,0)');
   x.fillStyle = rg; x.fillRect(0, 0, W, H);
+  const rg2 = x.createRadialGradient(W/2, H - 140, 40, W/2, H - 140, 480);
+  rg2.addColorStop(0, 'rgba(20,120,200,.22)'); rg2.addColorStop(1, 'rgba(20,120,200,0)');
+  x.fillStyle = rg2; x.fillRect(0, 0, W, H);
   x.textAlign = 'center';
-  x.fillStyle = '#9fd0f5'; x.font = '700 44px system-ui, sans-serif';
-  x.fillText('C A S A L  N A V Y', W/2, 130);
-  x.fillStyle = '#ffffff'; x.font = '800 104px system-ui, sans-serif';
-  x.fillText('TREINO PAGO', W/2, 300);
-  x.font = '120px system-ui, sans-serif'; x.fillText('💪', W/2, 470);
-  x.fillStyle = '#cfe7fa'; x.font = '500 44px system-ui, sans-serif';
-  x.fillText(fmtBR(o.log_date) + '  •  ' + String(o.day_label || '').split(' — ')[0], W/2, 580);
+  x.fillStyle = '#9fd0f5'; x.font = '700 36px system-ui, sans-serif';
+  x.fillText('C A S A L  N A V Y', W/2, 88);
+  x.fillStyle = '#ffffff'; x.font = '800 88px system-ui, sans-serif';
+  x.fillText('TREINO PAGO', W/2, 190);
+  x.font = '84px system-ui, sans-serif'; x.fillText('💪', W/2, 296);
+  x.fillStyle = '#cfe7fa'; x.font = '500 38px system-ui, sans-serif';
+  x.fillText(fmtBR(o.log_date) + '  •  ' + String(o.day_label || '').split(' — ')[0], W/2, 364);
+  // 4 stats em grade 2x2
   const stats = [
-    [(+o.volume_lbs || 0).toLocaleString('pt-BR'), 'volume (lbs)'],
-    [o.duration_min > 0 ? o.duration_min + ' min' : '—', 'duração'],
-    [String(o.exercises_count || 0), 'exercícios'],
-    [(o.streak || 0) + ' 🔥', 'dias seguidos'],
+    [(+o.volume_lbs || 0).toLocaleString('pt-BR'), 'volume (lbs)', '🏋️'],
+    [fmtDur(o.duration_min), 'duração', '⏱️'],
+    [String(o.exercises_count || 0), 'exercícios', '📋'],
+    [String(o.streak || 0), 'dias seguidos', '🔥'],
   ];
-  const bw = 440, bh = 200, gx = (W - bw * 2 - 40) / 2, gy = 660;
-  stats.forEach(([v, l], k) => {
-    const bx = gx + (k % 2) * (bw + 40), by = gy + Math.floor(k / 2) * (bh + 40);
+  const bw = 440, bh = 160, gx = (W - bw * 2 - 36) / 2, gy = 404;
+  stats.forEach(([v, l, ic], k) => {
+    const bx = gx + (k % 2) * (bw + 36), by = gy + Math.floor(k / 2) * (bh + 28);
     x.fillStyle = 'rgba(255,255,255,.12)';
-    x.beginPath(); x.roundRect(bx, by, bw, bh, 28); x.fill();
-    x.fillStyle = '#ffffff'; x.font = '800 64px system-ui, sans-serif';
-    x.fillText(v, bx + bw / 2, by + 96);
-    x.fillStyle = '#9fd0f5'; x.font = '500 36px system-ui, sans-serif';
-    x.fillText(l, bx + bw / 2, by + 152);
+    x.beginPath(); x.roundRect(bx, by, bw, bh, 26); x.fill();
+    x.fillStyle = '#ffffff'; x.font = '800 54px system-ui, sans-serif';
+    x.fillText(ic + ' ' + v, bx + bw / 2, by + 82);
+    x.fillStyle = '#9fd0f5'; x.font = '500 32px system-ui, sans-serif';
+    x.fillText(l, bx + bw / 2, by + 128);
   });
-  x.fillStyle = '#9fd0f5'; x.font = '500 36px system-ui, sans-serif';
-  x.fillText('Feito no Casal Navy 🏋️', W/2, H - 90);
+  // destaques: top 3 exercícios por volume
+  const tops = ((o.entries || []).map(e => ({ e, v: entryVolume(e) }))
+    .filter(t => t.v > 0).sort((a, b) => b.v - a.v).slice(0, 3));
+  let y = gy + 2 * (bh + 28) + 32;
+  if (tops.length) {
+    x.fillStyle = '#9fd0f5'; x.font = '700 30px system-ui, sans-serif';
+    x.fillText('D E S T A Q U E S  D O  T R E I N O', W/2, y);
+    tops.forEach(t => {
+      y += 68;
+      const name = String(t.e.name || 'Exercício');
+      const nm = name.length > 34 ? name.slice(0, 33) + '…' : name;
+      const sets = t.e.doneSets > 0 ? t.e.doneSets : (parseInt(t.e.sets, 10) || 0);
+      const det = (sets + '× ' + (t.e.reps || '') + (t.e.weight ? '  •  ' + t.e.weight + ' lbs' : '')).trim();
+      x.fillStyle = '#ffffff'; x.font = '700 38px system-ui, sans-serif';
+      x.fillText('🏅 ' + nm, W/2, y);
+      x.fillStyle = '#9fd0f5'; x.font = '500 32px system-ui, sans-serif';
+      x.fillText(det, W/2, y + 42);
+      y += 42;
+    });
+    y += 60;
+  }
+  // frase de efeito
+  const streak = +o.streak || 0;
+  const frases = ['Consistência vence motivação 💪', 'Feito é melhor que perfeito 🔥', 'O shape agradece 🏋️', 'Amanhã tem mais 😤'];
+  const frase = streak >= 5 ? '🔥 ' + streak + ' dias seguidos — sequência insana!'
+    : streak >= 3 ? '🔥 ' + streak + ' dias seguidos — mantém o ritmo!'
+    : frases[(new Date().getDate() + streak) % frases.length];
+  x.fillStyle = '#ffd76a'; x.font = '700 36px system-ui, sans-serif';
+  x.fillText(frase, W/2, Math.max(y, H - 170));
+  x.fillStyle = '#9fd0f5'; x.font = '500 34px system-ui, sans-serif';
+  x.fillText('Feito no Casal Navy 🏋️', W/2, H - 70);
   return cv;
 }
 function dlFile(f) {
