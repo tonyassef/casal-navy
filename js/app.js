@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v30'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v31'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -193,6 +193,7 @@ function refreshActive() {
   else if (s === 'conta') renderConta();
   else if (s === 'recados') renderRecados();
   else if (s === 'calendario') renderCalendario();
+  else if (s === 'desafios') renderDesafios();
 }
 
 function showScreen(name) {
@@ -211,12 +212,13 @@ async function enterApp() {
   try { S.notes = await Store.getNotes(); } catch (e) { S.notes = []; }
   try { S.checkins = await Store.getCheckins(); } catch (e) { S.checkins = []; }
   try { S.reactions = await Store.getReactions(); } catch (e) { S.reactions = []; }
+  try { S.summaries = await Store.getSummaries(); } catch (e) { S.summaries = []; }
   await loadDraft();
   S.todayDate = todayISO();
   const n = S.plan.days.length || 1;
   S.todayIdx = computeTodayIdx(); // fixo por dia; anda so no dia seguinte ao treino feito
   if (S.draft && S.draft.logDate !== S.todayDate) { /* mantem rascunho de outro dia */ }
-  renderHoje(); renderHistorico(); renderPlano(); renderConta(); renderCalendario(); renderRecados();
+  renderHoje(); renderHistorico(); renderPlano(); renderConta(); renderCalendario(); renderRecados(); renderDesafios();
   showScreen('hoje');
   // Se as notificacoes ja foram permitidas, garante a inscricao push atualizada
   if (Store.pushSupported() && Store.pushPermission() === 'granted') Store.ensurePushSubscription();
@@ -400,6 +402,11 @@ function lastLoadsFor(ex, dayLbl) {
 }
 function openExercise(i) {
   ensureDraft();
+  // marca o início do treino (pra calcular a duração no "treino pago")
+  try {
+    const wk = 'wstart.' + (Store.user && Store.user.id) + '.' + S.todayDate;
+    if (!localStorage.getItem(wk)) localStorage.setItem(wk, String(Date.now()));
+  } catch (e) {}
   const ex = S.plan.days[S.todayIdx].exercises[i];
   let st = S.draft.entries[i];
   let prefilled = false;
@@ -480,6 +487,7 @@ function openExercise(i) {
   $$('#m-setsrow .set-chip').forEach(c => c.addEventListener('click', () => {
     const k = +c.dataset.k; st.doneSets[k] = !st.doneSets[k]; c.classList.toggle('on', st.doneSets[k]);
     S.draft.entries[i] = st; saveDraft(); // marca série e já salva
+    if (st.doneSets[k]) startRestTimer(parseInt(st.rest, 10) || 180, name); // série feita → descansa
   }));
   // AUTO-SAVE: qualquer valor digitado salva na hora (aparelho + nuvem).
   // Fechar o app no meio do exercício não apaga mais nada.
@@ -488,7 +496,9 @@ function openExercise(i) {
   });
   $('#m-timer').addEventListener('click', () => {
     readFields();
-    S.draft.entries[i]=st; saveDraft(); openTimer(parseInt(st.rest,10)||180, ()=>openExercise(i));
+    S.draft.entries[i]=st; saveDraft(); closeModal();
+    startRestTimer(parseInt(st.rest,10)||180, name);
+    toast('Descansando… te aviso quando acabar ⏱');
   });
   $('#m-save').addEventListener('click', () => {
     readFields();
@@ -500,24 +510,38 @@ function openExercise(i) {
   });
 }
 
-/* timer de descanso */
-let timerInt = null;
-function openTimer(secs, back) {
-  let left = secs;
-  openModal(`<h3>Descanso</h3><div class="timer-big" id="t-big">${fmtT(left)}</div>
-    <div class="timer-btns"><button class="btn small" id="t-30">+30s</button>
-    <button class="btn small" id="t-stop">Parar</button></div>
-    <button class="btn" id="t-back">Voltar ao exercício</button>`);
-  clearInterval(timerInt);
-  const tick = () => {
-    left--; const elx = $('#t-big'); if (elx) elx.textContent = fmtT(Math.max(0,left));
-    if (left <= 0) { clearInterval(timerInt); beep(); if (navigator.vibrate) navigator.vibrate([200,100,200]); toast('Descanso terminado! 💪'); }
-  };
-  timerInt = setInterval(tick, 1000);
-  $('#t-30').addEventListener('click', ()=>{ left += 30; $('#t-big').textContent = fmtT(left); });
-  const stop = () => { clearInterval(timerInt); back(); };
-  $('#t-stop').addEventListener('click', stop);
-  $('#t-back').addEventListener('click', stop);
+/* timer de descanso flutuante: aparece sozinho ao concluir uma série,
+   não bloqueia a tela — dá pra mexer no app enquanto descansa */
+let restTimer = null;
+function startRestTimer(secs, label) {
+  secs = Math.max(5, parseInt(secs, 10) || 180);
+  stopRestTimer();
+  const bar = $('#restbar'); if (!bar) return;
+  restTimer = { left: secs, total: secs, label: label || 'Descanso', int: null };
+  bar.classList.remove('hidden');
+  paintRest();
+  restTimer.int = setInterval(() => {
+    if (!restTimer) return;
+    restTimer.left--;
+    if (restTimer.left <= 0) {
+      stopRestTimer(); beep();
+      try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) {}
+      toast('Descanso terminado! Bora 💪🔥');
+      return;
+    }
+    paintRest();
+  }, 1000);
+}
+function paintRest() {
+  const r = restTimer; if (!r) return;
+  const t = $('#rest-time'); if (t) t.textContent = fmtT(Math.max(0, r.left));
+  const lb = $('#rest-label'); if (lb) lb.textContent = '⏱ ' + r.label;
+  const fg = $('#rest-fg'); if (fg) fg.style.width = (100 * Math.max(0, r.left) / r.total) + '%';
+}
+function stopRestTimer() {
+  if (restTimer && restTimer.int) clearInterval(restTimer.int);
+  restTimer = null;
+  const bar = $('#restbar'); if (bar) bar.classList.add('hidden');
 }
 function fmtT(s){ return pad(Math.floor(s/60)) + ':' + pad(s%60); }
 function beep(){
@@ -545,31 +569,176 @@ async function finishWorkout() {
   try {
     await Store.saveLog(log);
     S.logs = await Store.getLogs();
+    // resumo pro duelo do casal + cartão "treino pago"
+    const wk = 'wstart.' + (Store.user && Store.user.id) + '.' + S.draft.logDate;
+    let durMin = 0;
+    try {
+      const t0 = parseInt(localStorage.getItem(wk) || '0', 10);
+      if (t0) durMin = Math.max(1, Math.round((Date.now() - t0) / 60000));
+      localStorage.removeItem(wk);
+    } catch (e) {}
+    const summary = { log_date: S.draft.logDate, day_label: dayLabel(d),
+      volume_lbs: logVolume({ entries }), duration_min: durMin, exercises_count: entries.length };
+    try { await Store.saveSummary(summary); S.summaries = await Store.getSummaries(); } catch (e) {}
+    const streak = streakDays();
     clearDraft();
     // o plano de hoje continua o mesmo; a rotação só anda amanhã
     S.todayIdx = computeTodayIdx();
     const nn = S.plan.days.length || 1;
     const nx = (((S.todayIdx + 1) % nn) + nn) % nn;
-    renderHoje(); renderHistorico();
+    renderHoje(); renderHistorico(); renderDesafios();
     savedToast('Treino salvo! Amanhã: ' + dayLabel(S.plan.days[nx]) + ' 💪');
+    openShareCard(Object.assign({}, summary, { streak }));
   } catch(e){ toast('Erro ao salvar: ' + e.message); }
 }
 
+/* ================= CARTÃO "TREINO PAGO" 📸 ================= */
+// Gera uma imagem bonita com o resumo do treino pra compartilhar no story.
+function shareCardCanvas(o) {
+  const W = 1080, H = 1350, cv = document.createElement('canvas');
+  cv.width = W; cv.height = H;
+  const x = cv.getContext('2d');
+  const g = x.createLinearGradient(0, 0, W, H);
+  g.addColorStop(0, '#0b2a4a'); g.addColorStop(1, '#1b5c9e');
+  x.fillStyle = g; x.fillRect(0, 0, W, H);
+  // brilho decorativo
+  const rg = x.createRadialGradient(W/2, 320, 40, W/2, 320, 520);
+  rg.addColorStop(0, 'rgba(159,208,245,.28)'); rg.addColorStop(1, 'rgba(159,208,245,0)');
+  x.fillStyle = rg; x.fillRect(0, 0, W, H);
+  x.textAlign = 'center';
+  x.fillStyle = '#9fd0f5'; x.font = '700 44px system-ui, sans-serif';
+  x.fillText('C A S A L  N A V Y', W/2, 130);
+  x.fillStyle = '#ffffff'; x.font = '800 104px system-ui, sans-serif';
+  x.fillText('TREINO PAGO', W/2, 300);
+  x.font = '120px system-ui, sans-serif'; x.fillText('💪', W/2, 470);
+  x.fillStyle = '#cfe7fa'; x.font = '500 44px system-ui, sans-serif';
+  x.fillText(fmtBR(o.log_date) + '  •  ' + String(o.day_label || '').split(' — ')[0], W/2, 580);
+  const stats = [
+    [(+o.volume_lbs || 0).toLocaleString('pt-BR'), 'volume (lbs)'],
+    [o.duration_min > 0 ? o.duration_min + ' min' : '—', 'duração'],
+    [String(o.exercises_count || 0), 'exercícios'],
+    [(o.streak || 0) + ' 🔥', 'dias seguidos'],
+  ];
+  const bw = 440, bh = 200, gx = (W - bw * 2 - 40) / 2, gy = 660;
+  stats.forEach(([v, l], k) => {
+    const bx = gx + (k % 2) * (bw + 40), by = gy + Math.floor(k / 2) * (bh + 40);
+    x.fillStyle = 'rgba(255,255,255,.12)';
+    x.beginPath(); x.roundRect(bx, by, bw, bh, 28); x.fill();
+    x.fillStyle = '#ffffff'; x.font = '800 64px system-ui, sans-serif';
+    x.fillText(v, bx + bw / 2, by + 96);
+    x.fillStyle = '#9fd0f5'; x.font = '500 36px system-ui, sans-serif';
+    x.fillText(l, bx + bw / 2, by + 152);
+  });
+  x.fillStyle = '#9fd0f5'; x.font = '500 36px system-ui, sans-serif';
+  x.fillText('Feito no Casal Navy 🏋️', W/2, H - 90);
+  return cv;
+}
+function dlFile(f) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(f); a.download = f.name || 'treino-pago.png';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+function openShareCard(o) {
+  openModal(`<h3>Treino pago! 💪🔥</h3>
+    <div class="sub">Mostra pro mundo (ou só pra ela 😏)</div>
+    <img id="share-img" alt="Treino pago" style="width:100%;border-radius:12px;margin:10px 0;display:block">
+    <button class="btn primary" id="sh-share">Compartilhar 📤</button>
+    <button class="btn" id="sh-dl">Baixar imagem ⬇️</button>
+    <button class="btn" id="sh-close">Fechar</button>`);
+  const cv = shareCardCanvas(o);
+  $('#share-img').src = cv.toDataURL('image/png');
+  const getFile = () => new Promise(res =>
+    cv.toBlob(b => res(new File([b], 'treino-pago.png', { type: 'image/png' })), 'image/png'));
+  $('#sh-share').addEventListener('click', async () => {
+    try {
+      const f = await getFile();
+      if (navigator.canShare && navigator.canShare({ files: [f] })) {
+        await navigator.share({ files: [f], title: 'Treino pago 💪', text: 'Treino pago no Casal Navy 💪🔥' });
+      } else { dlFile(f); toast('Imagem baixada ⬇️'); }
+    } catch (e) { if (!e || e.name !== 'AbortError') toast('Não deu pra compartilhar 😕'); }
+  });
+  $('#sh-dl').addEventListener('click', async () => dlFile(await getFile()));
+  $('#sh-close').addEventListener('click', closeModal);
+}
+
+/* ================= DESAFIOS DO CASAL ⚔️ ================= */
+function weekStartISO(d) {
+  const x = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+  x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); // segunda-feira
+  return todayISO(x);
+}
+function renderDesafios() {
+  const sums = S.summaries || [];
+  const me = Store.user ? String(Store.user.id) : '';
+  const ws = weekStartISO(new Date()), today = todayISO();
+  const byUser = {};
+  sums.forEach(s => {
+    if (s.log_date < ws || s.log_date > today) return;
+    const k = String(s.user_id);
+    byUser[k] = byUser[k] || { name: s.user_name || 'Alguém', vol: 0, treinos: 0 };
+    byUser[k].vol += (+s.volume_lbs || 0);
+    byUser[k].treinos += 1;
+  });
+  const rank = Object.entries(byUser).sort((a, b) => b[1].vol - a[1].vol);
+  const maxV = Math.max(1, ...rank.map(([, u]) => u.vol));
+  const daysLeft = 6 - ((new Date().getDay() + 6) % 7);
+  let h = `<div class="card"><h3>⚔️ Duelo da semana</h3>
+    <div class="sub">Quem levanta mais volume até domingo? ${
+      daysLeft === 0 ? 'É hoje! Último dia 🔥' : 'Faltam ' + daysLeft + ' dias'}</div>`;
+  if (!rank.length) h += `<div class="sub" style="margin-top:8px">Nenhum treino registrado ainda essa semana. Bora começar? 💪</div>`;
+  rank.forEach(([uid, u], idx) => {
+    const pct = Math.round(100 * u.vol / maxV);
+    h += `<div class="duel-row"><div class="duel-head"><b>${idx === 0 ? '👑 ' : ''}${esc(u.name)}${uid === me ? ' (você)' : ''}</b>`
+      + `<span>${u.vol.toLocaleString('pt-BR')} lbs • ${u.treinos} treino${u.treinos === 1 ? '' : 's'}</span></div>`
+      + `<div class="duel-bar"><div class="duel-fg${uid === me ? ' me' : ''}" style="width:${pct}%"></div></div></div>`;
+  });
+  h += `</div>`;
+  h += `<div class="card"><h3>🔥 Sua sequência</h3>
+    <div class="sub">Dias seguidos treinando</div><div class="streak-big">${streakDays()} 🔥</div></div>`;
+  h += `<div class="card"><h3>🏅 Últimas semanas</h3>`;
+  const past = [];
+  for (let w = 1; w <= 4; w++) {
+    const d0 = new Date(); d0.setDate(d0.getDate() - 7 * w);
+    const s0 = weekStartISO(d0);
+    const d1 = new Date(d0); d1.setDate(d1.getDate() + 6);
+    const s1 = todayISO(d1);
+    const wk = {};
+    sums.forEach(s => {
+      if (s.log_date < s0 || s.log_date > s1) return;
+      const k = String(s.user_id);
+      wk[k] = wk[k] || { name: s.user_name || '?', vol: 0 };
+      wk[k].vol += (+s.volume_lbs || 0);
+    });
+    const r2 = Object.entries(wk).sort((a, b) => b[1].vol - a[1].vol);
+    if (r2.length) past.push({ label: 'semana de ' + fmtBR(s0), win: r2[0][1] });
+  }
+  if (!past.length) h += `<div class="sub">Sem histórico de duelos ainda — o primeiro começa agora! ⚔️</div>`;
+  past.forEach(p => {
+    h += `<div class="duel-row"><div class="duel-head"><b>${esc(p.label)}</b>`
+      + `<span>👑 ${esc(p.win.name)} — ${p.win.vol.toLocaleString('pt-BR')} lbs</span></div></div>`;
+  });
+  h += `</div>`;
+  const el = $('#desaf-content');
+  if (el) el.innerHTML = h;
+}
+
 /* ================= HISTORICO / EVOLUCAO ================= */
+function entrySets(e) { return e.doneSets > 0 ? e.doneSets : (parseInt(e.sets, 10) || 0); }
+function entryVolume(e) {
+  const s = entrySets(e); let v = 0;
+  const m = maxLoad(e.weight); if (m != null) v += m * s;
+  const m2 = maxLoad(e.partnerWeight); if (m2 != null) v += m2 * s;
+  return v;
+}
+function logVolume(log) { return Math.round((log.entries || []).reduce((a, e) => a + entryVolume(e), 0)); }
 function kpiStats(days) {
   const sinceISO = days ? todayISO(new Date(Date.now() - (days - 1) * 864e5)) : '';
   let treinos = 0, series = 0, vol = 0;
   S.logs.forEach(l => {
     if (sinceISO && l.log_date < sinceISO) return;
     treinos++;
-    l.entries.forEach(e => {
-      const s = e.doneSets > 0 ? e.doneSets : (parseInt(e.sets, 10) || 0);
-      series += s;
-      const m = maxLoad(e.weight);
-      if (m != null) vol += m * s;
-      const m2 = maxLoad(e.partnerWeight);
-      if (m2 != null) vol += m2 * s;
-    });
+    l.entries.forEach(e => { series += entrySets(e); vol += entryVolume(e); });
   });
   return { treinos, series, vol: Math.round(vol) };
 }
@@ -1314,7 +1483,15 @@ $$('#tabbar button').forEach(b => b.addEventListener('click', () => {
   const s = b.dataset.screen; showScreen(s);
   if (s === 'hoje') renderHoje(); if (s === 'historico') renderHistorico();
   if (s === 'plano') renderPlano(); if (s === 'conta') renderConta();
-  if (s === 'calendario') renderCalendario();
+  if (s === 'calendario') renderCalendario(); if (s === 'desafios') renderDesafios();
 }));
 
 document.addEventListener('DOMContentLoaded', boot);
+
+/* botoes do timer de descanso flutuante */
+document.addEventListener('click', e => {
+  if (e.target && e.target.id === 'rest-plus' && restTimer) {
+    restTimer.left += 30; restTimer.total += 30; paintRest();
+  }
+  if (e.target && e.target.id === 'rest-stop') stopRestTimer();
+});

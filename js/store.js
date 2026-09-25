@@ -429,6 +429,37 @@ const Store = {
     const d = this._data(); d.logs = (d.logs || []).filter(x => x.id !== id); this._saveData(d);
   },
 
+  // ---------- resumos de treino (duelo do casal) ----------
+  // Cada treino concluído grava um resumo por data; leitura é do casal todo.
+  async getSummaries() {
+    if (this.mode === 'cloud') {
+      try {
+        const r = await SB.sel('workout_summaries', '?select=user_id,user_name,log_date,day_label,volume_lbs,duration_min,exercises_count&order=log_date.desc&limit=500');
+        return r || [];
+      } catch (e) { return []; }
+    }
+    return (this._data().summaries || []).slice().sort((a, b) => (b.log_date || '').localeCompare(a.log_date || ''));
+  },
+  async saveSummary(s) {
+    const row = { user_id: this.user.id, user_name: this.user.name || '',
+      log_date: s.log_date, day_label: s.day_label || '',
+      volume_lbs: Math.round(s.volume_lbs || 0), duration_min: Math.round(s.duration_min || 0),
+      exercises_count: s.exercises_count || 0 };
+    if (this.mode === 'cloud') {
+      try {
+        const ex = await SB.sel('workout_summaries', '?user_id=eq.' + this.user.id + '&log_date=eq.' + s.log_date + '&select=id&limit=1');
+        if (ex && ex.length) await SB.upd('workout_summaries', '?id=eq.' + ex[0].id, row);
+        else await SB.ins('workout_summaries', row);
+      } catch (e) { /* resumo é acessório: nunca bloqueia o treino */ }
+      return;
+    }
+    const d = this._data(); d.summaries = d.summaries || [];
+    const i = d.summaries.findIndex(x => String(x.user_id) === String(this.user.id) && x.log_date === s.log_date);
+    if (i >= 0) d.summaries[i] = Object.assign({}, d.summaries[i], row);
+    else d.summaries.push(Object.assign({ id: this.uid() }, row));
+    this._saveData(d);
+  },
+
   async getMeta() {
     if (this.mode === 'cloud') {
       try {

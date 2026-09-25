@@ -58,6 +58,12 @@
     <div class="content" id="hist-content"></div>
   </section>
 
+  <!-- ============ DESAFIOS ============ -->
+  <section id="screen-desafios" class="screen hidden">
+    <header class="topbar"><h2>⚔️ Desafios</h2></header>
+    <div class="content" id="desaf-content"></div>
+  </section>
+
   <!-- ============ CALENDARIO ============ -->
   <section id="screen-calendario" class="screen hidden">
     <header class="topbar"><h2>Calendário</h2></header>
@@ -84,12 +90,24 @@
 
   <nav id="tabbar" class="hidden">
     <button data-screen="hoje" class="active">🏋️<span>Hoje</span></button>
+    <button data-screen="desafios">⚔️<span>Duelo</span></button>
     <button data-screen="calendario">🗓️<span>Calendário</span></button>
     <button data-screen="historico">📊<span>Evolução</span></button>
     <button data-screen="recados">💌<span>Recados</span></button>
     <button data-screen="plano">📋<span>Plano</span></button>
     <button data-screen="conta">👤<span>Conta</span></button>
   </nav>
+</div>
+
+<!-- timer de descanso flutuante -->
+<div id="restbar" class="restbar hidden">
+  <div class="row">
+    <div style="flex:1"><div id="rest-label" class="rest-label">⏱ Descanso</div>
+    <div id="rest-time">3:00</div></div>
+    <button class="btn small" id="rest-plus">+30s</button>
+    <button class="btn small" id="rest-stop">Parar</button>
+  </div>
+  <div class="rest-track"><div id="rest-fg"></div></div>
 </div>
 
 <!-- modal generico -->
@@ -100,6 +118,6 @@
 <script src="js/history_seed.js"></script>
 <script src="js/sb.js"></script>
 <script src="js/store.js"></script>
-<script src="js/app.js?v=30"></script>
+<script src="js/app.js?v=31"></script>
 </body>
 </html>
