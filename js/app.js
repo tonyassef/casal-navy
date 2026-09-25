@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v36'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v37'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -758,11 +758,21 @@ function shareCardCanvas(o) {
   x.fillText('Feito no Casal Navy 🏋️', W/2, H - 70);
   return cv;
 }
-function dlFile(f) {
+async function dlFile(f) {
+  // No app instalado (PWA) o download direto via <a> é bloqueado no Android —
+  // usa o menu de compartilhar, que oferece salvar na galeria/arquivos.
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [f] })) {
+      toast('Escolha onde salvar no menu 📥');
+      await navigator.share({ files: [f], title: 'Treino pago 💪' });
+      return;
+    }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
   const a = document.createElement('a');
   a.href = URL.createObjectURL(f); a.download = f.name || 'treino-pago.png';
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  toast('Imagem baixada ⬇️');
 }
 function openShareCard(o) {
   openModal(`<h3>Treino pago! 💪🔥</h3>
@@ -994,9 +1004,15 @@ function openLog(id) {
     if (e.notes) h += `<div class="sub" style="margin:-2px 0 6px">📝 ${esc(e.notes)}</div>`;
   });
   if (l.notes) h += `<div class="sub">📝 ${esc(l.notes)}</div>`;
-  h += `<button class="btn danger" id="l-del">Excluir este treino</button><button class="btn" id="l-close">Fechar</button>`;
+  h += `<button class="btn primary" id="l-card">Ver cartão 📸</button><button class="btn danger" id="l-del">Excluir este treino</button><button class="btn" id="l-close">Fechar</button>`;
   openModal(h);
   $('#l-close').addEventListener('click', closeModal);
+  $('#l-card').addEventListener('click', () => {
+    const sum = (S.summaries || []).find(s => s.log_date === l.log_date) || {};
+    openShareCard({ log_date: l.log_date, day_label: l.day_label,
+      volume_lbs: logVolume({ entries: l.entries }), duration_min: +sum.duration_min || 0,
+      exercises_count: l.entries.length, streak: streakDays(), entries: l.entries });
+  });
   $('#l-del').addEventListener('click', async () => {
     if (!confirm('Excluir este treino do histórico?')) return;
     await Store.deleteLog(id); S.logs = await Store.getLogs();
