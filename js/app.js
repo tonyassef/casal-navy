@@ -317,6 +317,7 @@ function renderHoje() {
       <h3>${esc(dayLabel(d))}</h3><span class="badge">${esc(S.todayDate ? fmtBR(S.todayDate) : '')}</span>
     </div>
     <div class="sub">${d.exercises.length} exercícios • descanso padrão 3 min</div>
+    ${(() => { const dv = draftVolume(); return dv ? `<div class="vol-live">🔥 Volume do treino: <b>${dv.toLocaleString('pt-BR')} lbs</b></div>` : ''; })()}
     <label class="lbl">Data do treino</label>
     <input type="date" id="hoje-logdate" value="${esc(S.todayDate)}">
     <label class="lbl">Treinar outro dia do plano</label>
@@ -732,6 +733,18 @@ function entryVolume(e) {
   return v;
 }
 function logVolume(log) { return Math.round((log.entries || []).reduce((a, e) => a + entryVolume(e), 0)); }
+// volume do rascunho em andamento (séries já marcadas) — mostrado ao vivo no Hoje
+function draftVolume() {
+  const d = S.draft; if (!d || !d.entries) return 0;
+  let v = 0;
+  Object.values(d.entries).forEach(st => {
+    const n = (st.doneSets || []).filter(Boolean).length;
+    if (!n) return;
+    const m = maxLoad(st.weight); if (m != null) v += m * n;
+    const m2 = maxLoad(st.partnerWeight); if (m2 != null) v += m2 * n;
+  });
+  return Math.round(v);
+}
 function kpiStats(days) {
   const sinceISO = days ? todayISO(new Date(Date.now() - (days - 1) * 864e5)) : '';
   let treinos = 0, series = 0, vol = 0;
