@@ -257,8 +257,11 @@ const Store = {
 
   // Assinatura do plano salvo + carimbo de template (v23).
   // Migra qualquer rotação padrão antiga (A–F de 6 dias ou A/B/C de 3 dias)
-  // para o plano avançado A–F — mesmo que o usuário tenha ajustado algo nela.
-  // Plano com outro nome é tratado como personalizado e nunca é tocado.
+  // Migração pro plano avançado A–F (v23). Roda só se o plano for um template
+  // padrão ANTIGO conhecido (assinatura exata V1, V2 ou ABC de 3 dias).
+  // Plano atual ou customizado pelo usuário NUNCA é tocado — antes, qualquer
+  // ajuste (ex.: trocar técnica pra drop-set) fazia a migração restaurar o
+  // template e apagar a edição. Plano com outro nome é personalizado e nunca é tocado.
   // O carimbo (planTplV, por conta) garante que a migração rode uma única vez.
   _planSig(pl) {
     try {
@@ -278,17 +281,15 @@ const Store = {
   },
   _tplStamp() { try { return this._ls('planTplV.' + this.user.id) || 0; } catch (e) { return 0; } },
   _tplStampSet(v) { try { this._ls('planTplV.' + this.user.id, v); } catch (e) {} },
-  // patch cirúrgico de plano (25/09/2026, pedido do Antonio): Plano A —
-  // Rosca Scott sozinha (longe da polia); o super-set tríceps+bíceps na corda
-  // passa pra Rosca Martelo na Polia (tudo na polia, mesmo lugar).
-  // Só mexe se o campo ainda estiver com o valor antigo — edição manual do
-  // usuário (ex.: trocar pra drop-set) nunca é sobrescrita.
-  // Cargas, séries e histórico intactos. Roda uma única vez por conta.
-  _planPatchStamp() { try { return parseInt(this._ls('planPatchV.' + this.user.id) || '0', 10); } catch (e) { return 0; } },
-  _planPatchStampSet(v) { try { this._ls('planPatchV.' + this.user.id, String(v)); } catch (e) {} },
+  // patch do Plano A (25/09/2026, pedido do Antonio): Rosca Scott sozinha
+  // (longe da polia); o super-set tríceps+bíceps na corda fica na
+  // Rosca Martelo na Polia (tudo na polia, mesmo lugar).
+  // Idempotente e sem carimbo: só mexe se o campo ainda estiver com o valor
+  // antigo — edição manual do usuário (ex.: drop-set) nunca é sobrescrita —,
+  // então pode rodar a cada abertura sem risco e se autocura se o template
+  // for restaurado. Cargas, séries e histórico intactos.
   _applyPlanPatch(pl) {
-    if (!pl || this._planPatchStamp() >= 1) return false;
-    this._planPatchStampSet(1);
+    if (!pl) return false;
     let changed = false;
     try {
       const dA = (pl.days || []).find(d => d.day === 'Plano A');
@@ -303,8 +304,11 @@ const Store = {
     if (!pl) return false;
     if ((pl.tpl_v || 0) >= PLAN_TPL_V || this._tplStamp() >= PLAN_TPL_V) return false;
     if (!this._stdRotationKind(pl)) return false; // personalizado: não toca
-    if (this._planSig(pl) === PLAN_6DAY_SIG_V3) { this._tplStampSet(PLAN_TPL_V); return false; }
-    return true;
+    const sig = this._planSig(pl);
+    // só migra template antigo conhecido; plano atual ou customizado nunca é migrado
+    if (sig === PLAN_6DAY_SIG_V1 || sig === PLAN_6DAY_SIG_V2 || sig === PLAN_3DAY_SIG_V1) return true;
+    this._tplStampSet(PLAN_TPL_V);
+    return false;
   },
   _freshPlan() { return { name: 'Rotação A–F', days: JSON.parse(JSON.stringify(PLAN_6DAY)), tpl_v: PLAN_TPL_V }; },
 
