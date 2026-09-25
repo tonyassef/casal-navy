@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v37'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v38'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -430,6 +430,9 @@ function openExercise(i) {
   }
   const nSets = Math.max(1, parseInt(st.sets || ex.sets || '3', 10) || 3);
   while (st.doneSets.length < nSets) st.doneSets.push(false);
+  // se a técnica do plano mudou depois que o rascunho nasceu (ex.: patch colocou
+  // o drop-set), reflete no treino de hoje — só preenche quando está vazio
+  if (!st.technique && ex.technique) { st.technique = ex.technique; }
   const name = st.variant === 'B' && ex.nameB ? ex.nameB : ex.nameA;
   const partner = ssPartner(st.technique || ex.technique);
 

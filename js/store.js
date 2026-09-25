@@ -285,16 +285,26 @@ const Store = {
   // (longe da polia); o super-set tríceps+bíceps na corda fica na
   // Rosca Martelo na Polia (tudo na polia, mesmo lugar).
   // Idempotente e sem carimbo: só mexe se o campo ainda estiver com o valor
-  // antigo — edição manual do usuário (ex.: drop-set) nunca é sobrescrita —,
-  // então pode rodar a cada abertura sem risco e se autocura se o template
-  // for restaurado. Cargas, séries e histórico intactos.
+  // antigo — edição manual do usuário nunca é sobrescrita —, então pode rodar
+  // a cada abertura sem risco e se autocura se o template for restaurado.
+  // Cargas, séries e histórico intactos.
+  // (2ª parte, 25/09, pedido do Antonio: Scott com "Drop-set na última série".
+  // Preenche uma única vez por conta quando estiver vazio; se ele limpar depois,
+  // continua limpo.)
+  _planPatch2Stamp() { try { return parseInt(this._ls('planPatchV2.' + this.user.id) || '0', 10) || 0; } catch (e) { return 0; } },
+  _planPatch2StampSet(v) { try { this._ls('planPatchV2.' + this.user.id, String(v)); } catch (e) {} },
   _applyPlanPatch(pl) {
     if (!pl) return false;
     let changed = false;
     try {
       const dA = (pl.days || []).find(d => d.day === 'Plano A');
       ((dA && dA.exercises) || []).forEach(e => {
-        if (e.nameA === 'Rosca Scott na Máquina' && e.technique === 'Super-set com Tríceps Corda na Polia') { e.technique = ''; changed = true; }
+        if (e.nameA === 'Rosca Scott na Máquina') {
+          if (e.technique === 'Super-set com Tríceps Corda na Polia') { e.technique = ''; changed = true; }
+          else if (!e.technique && this._planPatch2Stamp() < 1) {
+            e.technique = 'Drop-set na última série'; this._planPatch2StampSet(1); changed = true;
+          }
+        }
         if (e.nameA === 'Rosca Martelo na Polia' && !e.technique) { e.technique = 'Super-set com Tríceps Corda na Polia'; changed = true; }
       });
     } catch (e) {}
