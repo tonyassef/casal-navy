@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v38'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v39'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -1621,12 +1621,36 @@ $$('#screen-auth .tab').forEach(t => t.addEventListener('click', () => {
 }));
 async function authGo(fn) {
   $('#auth-err').textContent = '';
+  // NB: navigator.onLine MENTE no Android (diz online sem internet de verdade),
+  // então falha de rede também é detectada pela mensagem do erro.
+  const netErr = (m) => /failed to fetch|networkerror|network request failed|load failed|timed out|timeout|abort/i.test(m || '');
+  const emailOf = () => {
+    const loginVisible = !$('#auth-login').classList.contains('hidden');
+    return (((loginVisible ? $('#login-email').value : $('#su-email').value) || '').trim().toLowerCase());
+  };
+  // sem internet: se já existe sessão salva desse e-mail neste aparelho, entra com ela (offline)
+  const enterOffline = async () => {
+    const em = emailOf();
+    const saved = (Store._savedSessions ? Store._savedSessions() : []).find(x => (x.email || '').toLowerCase() === em && x.userId);
+    if (!saved) return false;
+    try { await Store.switchProfile(saved.userId); S.addingProfile = false; $('#auth-cancel').classList.add('hidden'); await enterApp(); return true; }
+    catch (e) { return false; }
+  };
   if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+    if (await enterOffline()) return;
     $('#auth-err').textContent = 'Sem internet 📶 — conecte-se para entrar na primeira vez.';
     return;
   }
   try { await fn(); S.addingProfile = false; $('#auth-cancel').classList.add('hidden'); await enterApp(); }
-  catch(e){ $('#auth-err').textContent = e.message || 'Erro. Tente de novo.'; }
+  catch(e){
+    const msg = (e && e.message) || '';
+    if (netErr(msg)) {
+      if (await enterOffline()) return;
+      $('#auth-err').textContent = 'Sem internet 📶 — conecte-se para entrar.';
+      return;
+    }
+    $('#auth-err').textContent = msg || 'Erro. Tente de novo.';
+  }
 }
 $('#auth-cancel').addEventListener('click', () => {
   S.addingProfile = false; $('#auth-cancel').classList.add('hidden'); enterApp();

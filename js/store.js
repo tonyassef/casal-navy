@@ -153,16 +153,25 @@ const Store = {
   async switchProfile(userId) {
     const t = this._savedSessions().find(x => x.userId === userId);
     if (!t) throw new Error('Perfil não encontrado.');
+    // NB: navigator.onLine MENTE no Android (diz online sem internet de verdade),
+    // então falha de rede é detectada pela mensagem do erro — e NUNCA apaga a sessão salva.
+    const netErr = (e) => /failed to fetch|networkerror|network request failed|load failed|timed out|timeout|abort/i.test((e && e.message) || '');
     if (t.mode === 'cloud') {
       SB.token = t.token || null; SB.refreshToken = t.refreshToken || null; SB.user = null;
       try {
-        const ok = await SB.refresh();
-        if (!ok && !SB.token) throw new Error('sessao expirada');
-        if (!SB.user) await SB.getUser();
-        if (!SB.user) throw new Error('sessao expirada');
+        // tenta renovar/validar; falha de rede segue offline com o cache, sem deslogar
+        const ok = await SB.refresh().catch(() => false);
+        if (ok || SB.token) {
+          try { await SB.getUser(); }
+          catch (e) { if (!netErr(e)) throw e; /* offline: entra com os dados em cache */ }
+        } else {
+          throw new Error('sessao expirada');
+        }
       } catch (e) {
-        const off = typeof navigator !== 'undefined' && navigator.onLine === false;
-        if (!off) {
+        if (netErr(e)) {
+          // sem internet: mantém a sessão salva e entra com o cache; sincroniza depois
+        } else {
+          // o servidor recusou de verdade (ex.: sessão revogada): aí sim remove e pede login
           this._setSavedSessions(this._savedSessions().filter(x => x.userId !== userId));
           throw new Error('Sessão expirada. Entre de novo neste perfil.');
         }
