@@ -335,18 +335,27 @@ const Store = {
         }
         if (e.nameA === 'Rosca Martelo na Polia' && !e.technique) { e.technique = 'Super-set com Tríceps Corda na Polia'; changed = true; }
       });
-      // (28/09, pedido do Antonio) Rosca Inclinada no Plano D: sem super-set o treino
-      // todo — tríceps francês só na última série; 3 → 4 séries. Idempotente: só mexe
-      // se ainda estiver com os valores antigos; edição manual nunca é sobrescrita.
+      // (28/09, pedido do Antonio — correção) Rosca Inclinada: SEM super-set nenhum
+      // (técnica volta a ficar vazia); o super-set com Tríceps Francês passa para o
+      // último exercício, a Rosca Concentrada. 4 séries na inclinada mantidas.
+      // Idempotente: só mexe se ainda estiver com os valores antigos; edição manual
+      // nunca é sobrescrita.
       const dD = (pl.days || []).find(d => d.day === 'Plano D');
       const dDIdx = (pl.days || []).indexOf(dD);
       ((dD && dD.exercises) || []).forEach((e, ei) => {
-        if (e.nameA !== 'Rosca Inclinada com Halteres') return;
-        const OT = 'Super-set com Tríceps Francês na Polia', NT = 'Super-set com Tríceps Francês na última série';
-        let ec = false;
-        if (e.technique === OT) { e.technique = NT; ec = true; }
-        if (String(e.sets) === '3') { e.sets = '4'; ec = true; }
-        if (ec) { changed = true; this._syncDraftExercise(dDIdx, ei, OT, NT, '3', '4'); }
+        if (e.nameA === 'Rosca Inclinada com Halteres') {
+          let ec = false;
+          if (e.technique === 'Super-set com Tríceps Francês na Polia' || e.technique === 'Super-set com Tríceps Francês na última série') {
+            const ot = e.technique; e.technique = ''; ec = true;
+            this._syncDraftExercise(dDIdx, ei, ot, '', undefined, undefined);
+          }
+          if (String(e.sets) === '3') { e.sets = '4'; ec = true; this._syncDraftExercise(dDIdx, ei, undefined, undefined, '3', '4'); }
+          if (ec) changed = true;
+        }
+        if (e.nameA === 'Rosca Concentrada com Halteres' && !e.technique) {
+          e.technique = 'Super-set com Tríceps Francês'; changed = true;
+          this._syncDraftExercise(dDIdx, ei, '', 'Super-set com Tríceps Francês', undefined, undefined);
+        }
       });
     } catch (e) {}
     return changed;
