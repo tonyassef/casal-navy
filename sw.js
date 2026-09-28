@@ -1,9 +1,9 @@
 /* Casal Navy — service worker: app shell offline-first */
-const CACHE = 'casal-navy-v39';
+const CACHE = 'casal-navy-v40';
 const ASSETS = [
   '.', 'index.html', 'manifest.json',
   'css/style.css',
-  'js/plans.js', 'js/history_seed.js', 'js/sb.js', 'js/store.js', 'js/app.js?v=39',
+  'js/plans.js', 'js/history_seed.js', 'js/sb.js', 'js/store.js', 'js/app.js?v=40',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png',
   'img/watermark.jpg',
 ];

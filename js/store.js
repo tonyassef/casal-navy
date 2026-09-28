@@ -302,6 +302,25 @@ const Store = {
   // continua limpo.)
   _planPatch2Stamp() { try { return parseInt(this._ls('planPatchV2.' + this.user.id) || '0', 10) || 0; } catch (e) { return 0; } },
   _planPatch2StampSet(v) { try { this._ls('planPatchV2.' + this.user.id, String(v)); } catch (e) {} },
+  // reflete uma mudança do patch no rascunho de hoje, se ele já existir e ainda
+  // estiver com os valores antigos — nunca sobrescreve edição manual do treino
+  _syncDraftExercise(dayIdx, exIdx, oldTech, newTech, oldSets, newSets) {
+    try {
+      if (!this.user) return;
+      const dk = 'casalnavy.draft.' + this.user.id;
+      const d = JSON.parse(localStorage.getItem(dk) || 'null');
+      if (!d || d.dayIdx !== dayIdx) return;
+      const t = new Date();
+      const iso = t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0') + String(t.getDate()).padStart(2, '0');
+      if (d.logDate !== iso) return;
+      const st = d.entries && d.entries[exIdx];
+      if (!st) return;
+      let touched = false;
+      if (oldTech !== undefined && st.technique === oldTech) { st.technique = newTech; touched = true; }
+      if (oldSets !== undefined && String(st.sets) === String(oldSets)) { st.sets = newSets; touched = true; }
+      if (touched) { d.updatedAt = Date.now(); localStorage.setItem(dk, JSON.stringify(d)); }
+    } catch (e) {}
+  },
   _applyPlanPatch(pl) {
     if (!pl) return false;
     let changed = false;
@@ -315,6 +334,19 @@ const Store = {
           }
         }
         if (e.nameA === 'Rosca Martelo na Polia' && !e.technique) { e.technique = 'Super-set com Tríceps Corda na Polia'; changed = true; }
+      });
+      // (28/09, pedido do Antonio) Rosca Inclinada no Plano D: sem super-set o treino
+      // todo — tríceps francês só na última série; 3 → 4 séries. Idempotente: só mexe
+      // se ainda estiver com os valores antigos; edição manual nunca é sobrescrita.
+      const dD = (pl.days || []).find(d => d.day === 'Plano D');
+      const dDIdx = (pl.days || []).indexOf(dD);
+      ((dD && dD.exercises) || []).forEach((e, ei) => {
+        if (e.nameA !== 'Rosca Inclinada com Halteres') return;
+        const OT = 'Super-set com Tríceps Francês na Polia', NT = 'Super-set com Tríceps Francês na última série';
+        let ec = false;
+        if (e.technique === OT) { e.technique = NT; ec = true; }
+        if (String(e.sets) === '3') { e.sets = '4'; ec = true; }
+        if (ec) { changed = true; this._syncDraftExercise(dDIdx, ei, OT, NT, '3', '4'); }
       });
     } catch (e) {}
     return changed;
