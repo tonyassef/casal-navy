@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v42'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v43'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -397,14 +397,14 @@ function ensureDraft() {
 // pesos do último treino concluído deste mesmo dia do plano.
 // Quando o treino é finalizado, o próximo treino desse plano já abre
 // com as cargas usadas da última vez — é só ajustar se for aumentar.
-function lastLoadsFor(ex, dayLbl) {
+function lastEntryFor(ex, dayLbl) {
   const targets = [normName(ex.nameA), normName(ex.nameB)].filter(Boolean);
   if (!targets.length) return null;
   for (const l of (S.logs || [])) {
     if (l.day_label !== dayLbl) continue;
     for (const e of (l.entries || [])) {
       if (targets.includes(normName(e.name))) {
-        return { weight: e.weight || '', partnerWeight: e.partnerWeight || '', partnerReps: e.partnerReps || '' };
+        return { weight: e.weight || '', partnerWeight: e.partnerWeight || '', partnerReps: e.partnerReps || '', notes: e.notes || '' };
       }
     }
   }
@@ -422,9 +422,10 @@ function openExercise(i) {
   let prefilled = false;
   if (!st) {
     st = { variant: 'A', weight: '', partnerWeight: '', partnerReps: '', doneSets: [], notes: '', sets: ex.sets, reps: ex.reps, technique: ex.technique, rest: ex.rest };
-    const last = lastLoadsFor(ex, dayLabel(S.plan.days[S.todayIdx]));
-    if (last && (last.weight || last.partnerWeight)) {
+    const last = lastEntryFor(ex, dayLabel(S.plan.days[S.todayIdx]));
+    if (last && (last.weight || last.partnerWeight || last.notes)) {
       st.weight = last.weight; st.partnerWeight = last.partnerWeight; st.partnerReps = last.partnerReps;
+      st.notes = last.notes || '';
       prefilled = true;
     }
   }
@@ -471,7 +472,7 @@ function openExercise(i) {
       <button class="${st.variant==='B'?'active':''}" data-v="B">Plano B<br><small>${esc(ex.nameB)}</small></button>
     </div>` : `<div class="kv"><span>Plano A</span><b>${esc(ex.nameA)}</b></div>`}
     ${loadHtml}
-    ${prefilled ? '<div class="sub" style="color:var(--gold)">↩ pesos do seu último treino deste plano — ajusta se for aumentar 💪</div>' : ''}
+    ${prefilled ? '<div class="sub" style="color:var(--gold)">↩ puxei o peso e as observações do seu último treino deste plano — ajusta se precisar 💪</div>' : ''}
     <label class="lbl">Séries concluídas</label>
     <div class="sets-row" id="m-setsrow">${st.doneSets.map((d,k)=>`<button class="set-chip ${d?'on':''}" data-k="${k}">${k+1}</button>`).join('')}</div>
     <button class="btn" id="m-timer">⏱ Descansar</button>
