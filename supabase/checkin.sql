@@ -1,9 +1,9 @@
 -- ============================================================
 -- Casal Navy — check-in na academia + respostas e curtidas nos recados
 -- Como usar: cole este arquivo no SQL Editor do Supabase e rode.
--- (Depois de rodar, crie o webhook "checkin-push": Database -> Webhooks,
---  tabela gym_checkins, evento INSERT, POST para
---  https://<ref>.supabase.co/functions/v1/send-push)
+-- NOTA (29/09/2026): o app agora chama a Edge Function send-push direto
+-- (Store._firePush) após cada check-in/check-out/recado — NÃO crie o webhook
+-- manual "checkin-push" no dashboard, senão a notificação chega duplicada.
 -- ============================================================
 
 -- ---------- check-ins na academia ----------

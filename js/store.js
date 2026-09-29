@@ -599,6 +599,7 @@ const Store = {
         to_name: toName, message: message.slice(0, 500),
         parent_id: parentId || null,
       });
+      if (rows && rows[0]) this._firePush('couple_notes', rows[0]);
       return rows && rows[0];
     }
     const k = 'notes.' + this.user.id;
@@ -670,6 +671,7 @@ const Store = {
       const rows = await SB.ins('gym_checkins', {
         user_id: this.user.id, user_name: this.user.name,
       });
+      if (rows && rows[0]) this._firePush('gym_checkins', rows[0]);
       return rows && rows[0];
     }
     const k = 'checkins.' + this.user.id;
@@ -684,6 +686,7 @@ const Store = {
       const rows = await SB.ins('gym_checkins', {
         user_id: this.user.id, user_name: this.user.name, type: 'out',
       });
+      if (rows && rows[0]) this._firePush('gym_checkins', rows[0]);
       return rows && rows[0];
     }
     const k = 'checkins.' + this.user.id;
@@ -695,6 +698,22 @@ const Store = {
   },
 
   // ---------- push notifications (recadinhos) ----------
+  // Dispara o push pro outro do casal via Edge Function send-push, direto do app.
+  // (Antes dependia de um webhook manual no dashboard do Supabase, que nunca foi
+  // criado — por isso ninguém recebia nada.) Fire-and-forget: nunca quebra o fluxo.
+  _firePush(table, record) {
+    try {
+      if (this.mode !== 'cloud' || !record) return;
+      const cfg = this.cfg || {};
+      const base = String(cfg.url || '').replace(/\/+$/, '');
+      if (!base || !cfg.key) return;
+      fetch(base + '/functions/v1/send-push', {
+        method: 'POST',
+        headers: { 'apikey': cfg.key, 'Authorization': 'Bearer ' + cfg.key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ table: table, record: record }),
+      }).catch(() => {});
+    } catch (e) {}
+  },
   pushSupported() {
     return ('Notification' in window) && ('PushManager' in window) && ('serviceWorker' in navigator);
   },
