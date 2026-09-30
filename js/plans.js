@@ -599,8 +599,8 @@ const PLAN_6DAY = [
     "rest": "3 min"
    },
    {
-    "nameA": "Glúteo Coice na Máquina",
-    "nameB": "Coice com Halteres",
+    "nameA": "Agachamento Sumô no Smith",
+    "nameB": "Agachamento Sumô com Halteres",
     "sets": "3",
     "reps": "12-15",
     "technique": "",
@@ -626,6 +626,7 @@ const EXERCISE_VIDEOS = {
  "Agachamento Goblet com Halteres": "https://www.youtube.com/shorts/lz9WeJOJo-0",
  "Agachamento Hack Machine": "https://www.youtube.com/shorts/HrAysSoG9ws",
  "Agachamento Sumô com Halteres": "https://www.youtube.com/shorts/shzuGpBi2d0",
+ "Agachamento Sumô no Smith": "https://www.youtube.com/shorts/shzuGpBi2d0",
  "Cadeira Adutora": "https://www.youtube.com/watch?v=qe750SFMNUc",
  "Cadeira Extensora": "https://www.youtube.com/shorts/McDlS16kwhI",
  "Cadeira Flexora Sentada": "https://www.youtube.com/shorts/5K0dcOVGwZ8",

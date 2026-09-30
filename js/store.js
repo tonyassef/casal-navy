@@ -357,6 +357,17 @@ const Store = {
           this._syncDraftExercise(dDIdx, ei, '', 'Super-set com Tríceps Francês', undefined, undefined);
         }
       });
+      // (30/09, pedido do Antonio) Plano F: Glúteo Coice sai — ele não sabe fazer o
+      // movimento e a academia não tem o aparelho. Entra Agachamento Sumô
+      // (Smith / halteres). Idempotente: só troca se ainda estiver com os nomes
+      // antigos; edição manual nunca é sobrescrita.
+      const dF = (pl.days || []).find(d => d.day === 'Plano F');
+      ((dF && dF.exercises) || []).forEach(e => {
+        if (e.nameA === 'Glúteo Coice na Máquina') {
+          e.nameA = 'Agachamento Sumô no Smith'; changed = true;
+          if (e.nameB === 'Coice com Halteres') e.nameB = 'Agachamento Sumô com Halteres';
+        }
+      });
     } catch (e) {}
     return changed;
   },
