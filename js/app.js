@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v44'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v45'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -341,6 +341,35 @@ function renderHoje() {
       ${w?`<div class="w">${w}</div>`:''}<button class="yt-btn" data-yt="${i}" data-v="${st && st.variant === 'B' && ex.nameB ? 'B' : 'A'}" title="Ver vídeo no YouTube">▶️</button><div class="chev">›</div></div>`;
   });
 
+  // finalização: cardio + abs + esforço (RPE) — fica antes do botão concluir
+  const fc = (draft && draft.cardio) || {}, fa = (draft && draft.abs) || {};
+  h += `<div class="card"><h3>Finalização 🏁</h3>
+    <label class="lbl">Cardio</label>
+    <div class="row2">
+      <select id="f-cardio-done">
+        <option value="">Não fiz</option>
+        <option value="1" ${fc.done?'selected':''}>Fiz cardio</option>
+      </select>
+      <select id="f-cardio-machine">${CARDIO_MACHINES.map(m=>`<option ${fc.machine===m?'selected':''}>${m}</option>`).join('')}</select>
+    </div>
+    <div class="row2"><div><label class="lbl">Minutos</label>
+      <input id="f-cardio-min" type="number" inputmode="numeric" min="1" placeholder="20" value="${esc(fc.minutes||'')}"></div>
+    </div>
+    <label class="lbl">Abdominais</label>
+    <div class="row2">
+      <select id="f-abs-done">
+        <option value="">Não fiz</option>
+        <option value="1" ${fa.done?'selected':''}>Fiz abs</option>
+      </select>
+      <select id="f-abs-ex">${ABS_EXERCISES.map(m=>`<option ${fa.exercise===m?'selected':''}>${m}</option>`).join('')}</select>
+    </div>
+    <div class="row2"><div><label class="lbl">Séries</label>
+      <input id="f-abs-sets" type="number" inputmode="numeric" min="1" placeholder="3" value="${esc(fa.sets||'')}"></div>
+      <div><label class="lbl">Esforço (RPE 1–10)</label>
+      <select id="f-rpe"><option value="">—</option>${[1,2,3,4,5,6,7,8,9,10].map(n=>`<option value="${n}" ${String(draft&&draft.rpe)===String(n)?'selected':''}>${n}</option>`).join('')}</select></div>
+    </div>
+    <div class="sub">O cardio e o abs entram no histórico e nas estatísticas. 💪</div>
+  </div>`;
   h += `<button class="btn primary" id="btn-finish">Concluir treino ✓</button>
         <button class="btn spotify" id="btn-spotify">🎵 Tocar playlist de treino</button>
         <button class="btn" id="btn-discard" style="${isDraftDay?'':'display:none'}">Descartar rascunho</button>`;
@@ -378,12 +407,23 @@ function renderHoje() {
   wireNoteBanner();
   wireDeloadBanner();
   $('#btn-finish').addEventListener('click', finishWorkout);
+  // finalização: salva no rascunho a cada mudança
+  const updFin = () => {
+    ensureDraft();
+    S.draft.cardio = { done: $('#f-cardio-done').value === '1', machine: $('#f-cardio-machine').value, minutes: $('#f-cardio-min').value };
+    S.draft.abs = { done: $('#f-abs-done').value === '1', exercise: $('#f-abs-ex').value, sets: $('#f-abs-sets').value };
+    S.draft.rpe = $('#f-rpe').value;
+    saveDraft();
+  };
+  ['f-cardio-done','f-cardio-machine','f-cardio-min','f-abs-done','f-abs-ex','f-abs-sets','f-rpe']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('change', updFin); });
   $('#btn-discard').addEventListener('click', () => { clearDraft(); renderHoje(); toast('Rascunho descartado.'); });
 }
 
 function ensureDraft() {
   if (!S.draft || S.draft.dayIdx !== S.todayIdx || S.draft.logDate !== S.todayDate) {
-    S.draft = { dayIdx: S.todayIdx, logDate: S.todayDate, entries: {}, notes: '' };
+    S.draft = { dayIdx: S.todayIdx, logDate: S.todayDate, entries: {}, notes: '',
+      cardio: { done: false, machine: '', minutes: '' }, abs: { done: false, exercise: '', sets: '' }, rpe: '' };
     saveDraft();
     // marca o início do treino (pra duração no "treino pago") assim que o
     // rascunho nasce — vale pra qualquer fluxo, não só abrindo exercício
@@ -403,6 +443,7 @@ function lastEntryFor(ex, dayLbl) {
   for (const l of (S.logs || [])) {
     if (l.day_label !== dayLbl) continue;
     for (const e of (l.entries || [])) {
+      if (e.kind) continue;
       if (targets.includes(normName(e.name))) {
         return { weight: e.weight || '', partnerWeight: e.partnerWeight || '', partnerReps: e.partnerReps || '', notes: e.notes || '' };
       }
@@ -640,7 +681,14 @@ async function finishWorkout() {
       weight: st.weight, partnerName: st.partnerName || '', partnerWeight: st.partnerWeight || '', partnerReps: st.partnerReps || '',
       doneSets: st.doneSets.filter(Boolean).length, notes: st.notes };
   }).filter(e => e.weight || e.doneSets > 0 || e.notes);
+  // finalização: cardio + abs viram entradas especiais do treino
+  const fc = S.draft.cardio || {}, fa = S.draft.abs || {};
+  const cardioMin = Math.max(0, parseInt(fc.minutes, 10) || 0);
+  const absSets = Math.max(0, parseInt(fa.sets, 10) || 0);
+  if (fc.done && cardioMin > 0) entries.push({ kind: 'cardio', name: 'Cardio', machine: fc.machine || 'Outro', minutes: cardioMin });
+  if (fa.done && (absSets > 0 || fa.exercise)) entries.push({ kind: 'abs', name: 'Abdominais', exercise: fa.exercise || 'Abs', sets: absSets });
   if (!entries.length) { toast('Marque ao menos um exercício antes de concluir.'); return; }
+  const prevPRs = prsByExercise();
   const log = { log_date: S.draft.logDate, day_label: dayLabel(d), entries,
     notes: S.draft.notes || '' };
   try {
@@ -666,18 +714,30 @@ async function finishWorkout() {
       }
       localStorage.removeItem(wk);
     } catch (e) {}
+    const rpe = parseInt(S.draft.rpe, 10) || null;
+    const kcal = estKcal({ durMin, cardioMin, cardioMachine: fc.machine, absSets, weightKg: bodyWeightKg() });
+    try { await saveWorkoutExtra(S.draft.logDate, { rpe, kcal }); } catch (e) {}
     const summary = { log_date: S.draft.logDate, day_label: dayLabel(d),
-      volume_lbs: logVolume({ entries }), duration_min: durMin, exercises_count: entries.length };
+      volume_lbs: logVolume({ entries }), duration_min: durMin,
+      exercises_count: entries.filter(e => !e.kind).length };
     try { await Store.saveSummary(summary); S.summaries = await Store.getSummaries(); } catch (e) {}
     const streak = streakDays();
     clearDraft();
+    // recordes pessoais batidos neste treino
+    const newPRs = [];
+    entries.forEach(e => {
+      if (e.kind) return;
+      const k = normName(e.name), w = maxLoad(e.weight);
+      if (k && w != null && (!prevPRs[k] || w > prevPRs[k].w)) newPRs.push({ name: e.name, w });
+    });
     // o plano de hoje continua o mesmo; a rotação só anda amanhã
     S.todayIdx = computeTodayIdx();
     const nn = S.plan.days.length || 1;
     const nx = (((S.todayIdx + 1) % nn) + nn) % nn;
     renderHoje(); renderHistorico(); renderDesafios();
     savedToast('Treino salvo! Amanhã: ' + dayLabel(S.plan.days[nx]) + ' 💪');
-    openShareCard(Object.assign({}, summary, { streak, entries }));
+    if (newPRs.length) setTimeout(() => savedToast('🏆 Recorde pessoal: ' + newPRs.map(p => p.name + ' ' + p.w + ' lbs').join(' • ')), 1200);
+    openShareCard(Object.assign({}, summary, { streak, entries, kcal }));
   } catch(e){ toast('Erro ao salvar: ' + e.message); }
 }
 
@@ -733,6 +793,15 @@ function shareCardCanvas(o) {
   const tops = ((o.entries || []).map(e => ({ e, v: entryVolume(e) }))
     .filter(t => t.v > 0).sort((a, b) => b.v - a.v).slice(0, 3));
   let y = gy + 2 * (bh + 28) + 32;
+  if (+o.kcal > 0) {
+    x.fillStyle = 'rgba(255,255,255,.12)';
+    x.beginPath(); x.roundRect(gx, y - 56, bw * 2 + 36, 92, 24); x.fill();
+    x.fillStyle = '#ffffff'; x.font = '800 50px system-ui, sans-serif';
+    x.fillText('🔥 ~' + (+o.kcal).toLocaleString('pt-BR') + ' kcal', W / 2, y + 8);
+    x.fillStyle = '#9fd0f5'; x.font = '500 28px system-ui, sans-serif';
+    x.fillText('estimativa do treino', W / 2, y + 46);
+    y += 108;
+  }
   if (tops.length) {
     x.fillStyle = '#9fd0f5'; x.font = '700 30px system-ui, sans-serif';
     x.fillText('D E S T A Q U E S  D O  T R E I N O', W/2, y);
@@ -863,8 +932,9 @@ function renderDesafios() {
 }
 
 /* ================= HISTORICO / EVOLUCAO ================= */
-function entrySets(e) { return e.doneSets > 0 ? e.doneSets : (parseInt(e.sets, 10) || 0); }
+function entrySets(e) { if (e.kind) return 0; return e.doneSets > 0 ? e.doneSets : (parseInt(e.sets, 10) || 0); }
 function entryVolume(e) {
+  if (e.kind) return 0;
   const s = entrySets(e); let v = 0;
   const m = maxLoad(e.weight); if (m != null) v += m * s;
   const m2 = maxLoad(e.partnerWeight); if (m2 != null) v += m2 * s;
@@ -902,6 +972,125 @@ function streakDays() {
   return s;
 }
 
+/* ================= FINALIZAÇÃO: cardio/abs/RPE + kcal + medidas ================= */
+const CARDIO_MACHINES = ['Esteira', 'Bike', 'Elíptico', 'Escada', 'Remo', 'Caminhada', 'Outro'];
+const CARDIO_METS = { 'Esteira': 9, 'Bike': 7.5, 'Elíptico': 8, 'Escada': 9, 'Remo': 8, 'Caminhada': 4, 'Outro': 7 };
+const ABS_EXERCISES = ['Supra', 'Infra', 'Oblíquo', 'Prancha', 'Outro'];
+
+function bodyMetrics() { return (S.meta && S.meta.bodyMetrics) || []; }
+function latestBodyMetric() { const ms = bodyMetrics(); return ms.length ? ms[ms.length - 1] : null; }
+function bodyWeightKg() {
+  const m = latestBodyMetric();
+  const lbs = parseFloat(String((m && m.weight) || '').replace(',', '.'));
+  return lbs > 0 ? lbs / 2.20462 : null;
+}
+async function saveBodyMetric(m) {
+  const ms = bodyMetrics().filter(x => x.d !== m.d);
+  ms.push({ d: m.d, weight: m.weight || '', fat: m.fat || '', muscle: m.muscle || '' });
+  ms.sort((a, b) => String(a.d).localeCompare(String(b.d)));
+  S.meta.bodyMetrics = ms.slice(-365);
+  await Store.saveMeta(S.meta);
+}
+function workoutExtras() { return (S.meta && S.meta.workoutExtras) || {}; }
+async function saveWorkoutExtra(date, patch) {
+  const ex = workoutExtras();
+  ex[date] = Object.assign({}, ex[date], patch);
+  S.meta.workoutExtras = ex;
+  await Store.saveMeta(S.meta);
+}
+// estimativa de kcal: METs × peso × tempo. Sem frequência cardíaca é aproximado (±20-30%).
+function estKcal(o) {
+  const kg = o.weightKg;
+  if (!kg) return null;
+  const cardioMin = Math.max(0, +o.cardioMin || 0);
+  const strengthMin = Math.max(0, (+o.durMin || 0) - cardioMin);
+  let k = 6 * kg * (strengthMin / 60);
+  if (cardioMin > 0) k += (CARDIO_METS[o.cardioMachine] || 7) * kg * (cardioMin / 60);
+  const absSets = Math.max(0, +o.absSets || 0);
+  if (absSets > 0) k += 4.5 * kg * ((absSets * 1.5) / 60);
+  return Math.round(k);
+}
+// recordes pessoais: maior carga por exercício em todo o histórico
+function prsByExercise() {
+  const best = {};
+  (S.logs || []).forEach(l => (l.entries || []).forEach(e => {
+    if (e.kind) return;
+    const cands = [[e.name, e.weight]];
+    if (e.partnerName) cands.push([e.partnerName, e.partnerWeight]);
+    cands.forEach(([nm, wt]) => {
+      const k = normName(nm); if (!k) return;
+      const w = maxLoad(wt); if (w == null) return;
+      if (!best[k] || w > best[k].w) best[k] = { name: nm, w, d: l.log_date };
+    });
+  }));
+  return best;
+}
+const MUSCLE_KEYS = [
+  [/costa/, 'Costas'], [/bicep/, 'Bíceps'], [/peito/, 'Peito'], [/ombro/, 'Ombro'],
+  [/tricep/, 'Tríceps'], [/quadricep/, 'Quadríceps'], [/posterior/, 'Posterior'],
+  [/gluteo/, 'Glúteo'], [/perna/, 'Pernas'], [/panturrilha/, 'Panturrilha'],
+];
+function muscleGroupsOf(label) {
+  const t = normName(label);
+  const gs = MUSCLE_KEYS.filter(([re]) => re.test(t)).map(([, n]) => n);
+  return gs.length ? gs : ['Outros'];
+}
+function cardioStats(days) {
+  const since = days ? todayISO(new Date(Date.now() - (days - 1) * 864e5)) : '';
+  let min = 0, sess = 0;
+  (S.logs || []).forEach(l => {
+    if (since && l.log_date < since) return;
+    (l.entries || []).forEach(e => { if (e.kind === 'cardio') { min += (+e.minutes || 0); sess++; } });
+  });
+  return { min, sess };
+}
+function kcalStats(days) {
+  const since = days ? todayISO(new Date(Date.now() - (days - 1) * 864e5)) : '';
+  let k = 0;
+  (S.logs || []).forEach(l => {
+    if (since && l.log_date < since) return;
+    const ex = workoutExtras()[l.log_date];
+    if (ex && ex.kcal) k += ex.kcal;
+  });
+  return k;
+}
+// platô: exercícios com 4+ semanas de histórico cujo máximo recente não supera o anterior
+function plateauList() {
+  const out = [], per = {};
+  (S.logs || []).forEach(l => (l.entries || []).forEach(e => {
+    if (e.kind) return;
+    const k = normName(e.name); if (!k) return;
+    const w = maxLoad(e.weight); if (w == null) return;
+    (per[k] = per[k] || []).push({ d: l.log_date, w, name: e.name });
+  }));
+  Object.keys(per).forEach(k => {
+    const pts = per[k].sort((a, b) => a.d.localeCompare(b.d));
+    if (pts.length < 4) return;
+    const weeks = (new Date(pts[pts.length - 1].d) - new Date(pts[0].d)) / 6048e5;
+    if (weeks < 4) return;
+    const rMax = Math.max(...pts.slice(-3).map(p => p.w));
+    const oMax = Math.max(...pts.slice(0, -3).map(p => p.w));
+    if (rMax <= oMax) out.push({ name: pts[0].name, w: rMax, weeks: Math.round(weeks) });
+  });
+  return out.slice(0, 6);
+}
+function heatmapWeeks(n) {
+  const set = new Set((S.logs || []).map(l => l.log_date));
+  const weeks = [], d = new Date();
+  d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); // segunda-feira
+  const now = new Date();
+  for (let w = n - 1; w >= 0; w--) {
+    const days = [];
+    for (let i = 0; i < 7; i++) {
+      const dd = new Date(d); dd.setDate(dd.getDate() - w * 7 + i);
+      const iso = todayISO(dd);
+      days.push({ iso, on: set.has(iso), future: dd > now });
+    }
+    weeks.push(days);
+  }
+  return weeks;
+}
+
 function renderHistorico() {
   const r = S.histRange || 30;
   const st = kpiStats(r);
@@ -914,6 +1103,60 @@ function renderHistorico() {
       <div class="kpi"><b>${st.vol.toLocaleString('pt-BR')}</b><small>volume (lbs)</small></div>
       <div class="kpi"><b>${streakDays()} 🔥</b><small>dias seguidos</small></div>
     </div>`;
+  // kcal + cardio do período
+  const kc = kcalStats(r), cd = cardioStats(r);
+  h += `<div class="kpis">
+      <div class="kpi"><b>${kc ? '~' + kc.toLocaleString('pt-BR') : '—'}</b><small>kcal estimadas</small></div>
+      <div class="kpi"><b>${cd.min ? cd.min + ' min' : '—'}</b><small>cardio${cd.sess ? ' (' + cd.sess + 'x)' : ''}</small></div>
+    </div>`;
+
+  // recordes pessoais
+  const prList = Object.values(prsByExercise()).sort((a, b) => b.w - a.w).slice(0, 10);
+  h += `<div class="card"><h3>🏆 Recordes pessoais</h3>` +
+    (prList.length ? prList.map(p => `<div class="kv"><span>${esc(p.name)}<br><small style="color:var(--muted)">${esc(fmtBR(p.d))}</small></span><b style="color:var(--gold)">${p.w} lbs</b></div>`).join('')
+      : '<div class="sub">Sem recordes ainda. Bora treinar! 💪</div>') + `</div>`;
+
+  // mapa de calor de frequência — 12 semanas
+  h += `<div class="card"><h3>🗓️ Frequência — últimas 12 semanas</h3><div class="heatmap">` +
+    heatmapWeeks(12).map(w => `<div class="hm-w">` + w.map(dy =>
+      `<div class="hm-d${dy.on ? ' on' : ''}${dy.future ? ' fut' : ''}" title="${dy.iso}"></div>`).join('') + `</div>`).join('') +
+    `</div><div class="sub">Cada quadradinho é um dia treinado.</div></div>`;
+
+  // volume por grupo muscular — 28 dias
+  const since28 = todayISO(new Date(Date.now() - 27 * 864e5));
+  const mvol = {};
+  (S.logs || []).forEach(l => {
+    if (l.log_date < since28) return;
+    const v = logVolume(l); if (!v) return;
+    muscleGroupsOf(l.day_label).forEach(g => { mvol[g] = (mvol[g] || 0) + v; });
+  });
+  const mkeys = Object.keys(mvol).sort((a, b) => mvol[b] - mvol[a]);
+  const mmax = mkeys.length ? mvol[mkeys[0]] : 1;
+  h += `<div class="card"><h3>💪 Volume por grupo — 28 dias</h3>` +
+    (mkeys.length ? mkeys.map(g => `<div class="mbar"><span>${g}</span><div class="mbar-t"><div class="mbar-f" style="width:${Math.max(4, Math.round(100 * mvol[g] / mmax))}%"></div></div><b>${(mvol[g] / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}k</b></div>`).join('')
+      : '<div class="sub">Sem dados no período.</div>') + `</div>`;
+
+  // platôs
+  const plats = plateauList();
+  if (plats.length) {
+    h += `<div class="card"><h3>⚠️ Possíveis platôs</h3><div class="sub">Carga máxima sem evoluir há 4+ semanas:</div>` +
+      plats.map(p => `<div class="kv"><span>${esc(p.name)}<br><small style="color:var(--muted)">estagnado há ~${p.weeks} semanas</small></span><b>${p.w} lbs</b></div>`).join('') + `</div>`;
+  }
+
+  // medidas corporais
+  const ms = bodyMetrics(), lm = latestBodyMetric();
+  h += `<div class="card"><h3>📏 Medidas corporais</h3>
+    <div class="sub">Peso, gordura e massa muscular — da balança ou manual. O peso alimenta a estimativa de kcal.</div>
+    <div class="row2"><div><label class="lbl">Data</label><input type="date" id="bm-d" value="${todayISO()}"></div>
+    <div><label class="lbl">Peso (lbs)</label><input id="bm-w" type="number" inputmode="decimal" placeholder="${lm && lm.weight ? esc(String(lm.weight)) : 'ex: 185'}"></div></div>
+    <div class="row2"><div><label class="lbl">Gordura %</label><input id="bm-f" type="number" inputmode="decimal" placeholder="${lm && lm.fat ? esc(String(lm.fat)) : 'ex: 18,5'}"></div>
+    <div><label class="lbl">Massa muscular (lbs)</label><input id="bm-m" type="number" inputmode="decimal" placeholder="${lm && lm.muscle ? esc(String(lm.muscle)) : 'ex: 145'}"></div></div>
+    <button class="btn primary" id="bm-save">Salvar medida ✓</button>
+    <div id="bm-list" style="margin-top:8px">` +
+    (ms.length ? ms.slice(-8).reverse().map(m => `<div class="kv"><span>${esc(fmtBR(m.d))}</span><b>${m.weight ? esc(String(m.weight)) + ' lbs' : '—'}${m.fat ? ' • ' + esc(String(m.fat)) + '% gord.' : ''}${m.muscle ? ' • ' + esc(String(m.muscle)) + ' lbs mús.' : ''}</b></div>`).join('')
+      : '<div class="sub">Nenhuma medida ainda.</div>') + `</div>
+    ${bodyMetrics().filter(m => parseFloat(String(m.weight).replace(',', '.')) > 0).length >= 2 ? '<canvas class="chart" id="bm-chart" width="640" height="200" style="margin-top:8px"></canvas>' : ''}
+  </div>`;
 
   h += `<div class="card"><h3>Progressão por exercício</h3>
     <label class="lbl">Exercício</label><select id="h-exsel"></select>
@@ -940,6 +1183,7 @@ function renderHistorico() {
   // preenche select de exercicios
   const names = {};
   S.logs.forEach(l => l.entries.forEach(e => {
+    if (e.kind) return;
     const k = normName(e.name); if (k && !names[k]) names[k] = e.name;
     const pk = normName(e.partnerName); if (pk && !names[pk]) names[pk] = e.partnerName;
   }));
@@ -952,11 +1196,57 @@ function renderHistorico() {
 
   $$('#h-list .log-item').forEach(el => el.addEventListener('click', ()=>openLog(el.dataset.id)));
   const bs = $('#btn-seed'); if (bs) bs.addEventListener('click', importSeed);
+  // medidas corporais
+  const bms = $('#bm-save');
+  if (bms) bms.addEventListener('click', async () => {
+    const d = $('#bm-d').value || todayISO();
+    const w = $('#bm-w').value.trim().replace(',', '.');
+    if (!w || !(parseFloat(w) > 0)) { toast('Informe o peso.'); return; }
+    await saveBodyMetric({ d, weight: w,
+      fat: $('#bm-f').value.trim().replace(',', '.'), muscle: $('#bm-m').value.trim().replace(',', '.') });
+    savedToast('Medida salva! 📏');
+    renderHistorico();
+  });
+  drawBodyChart();
+}
+
+// gráfico de peso corporal (medidas)
+function drawBodyChart() {
+  const cv = document.getElementById('bm-chart'); if (!cv) return;
+  const pts = bodyMetrics()
+    .map(m => ({ d: m.d, w: parseFloat(String(m.weight).replace(',', '.')) }))
+    .filter(p => p.w > 0).slice(-30);
+  const ctx = cv.getContext('2d'), W = cv.width, H = cv.height;
+  ctx.clearRect(0, 0, W, H);
+  if (pts.length < 2) return;
+  const ws = pts.map(p => p.w);
+  let mn = Math.min(...ws), mx = Math.max(...ws);
+  if (mx - mn < 2) { mn -= 1; mx += 1; }
+  const px = i => 46 + (W - 62) * (i / (pts.length - 1));
+  const py = w => (H - 28) - (H - 54) * ((w - mn) / (mx - mn));
+  ctx.strokeStyle = '#c6e2f5'; ctx.fillStyle = '#5d84a6'; ctx.font = '11px sans-serif';
+  [mn, (mn + mx) / 2, mx].forEach(v => {
+    const y = py(v);
+    ctx.beginPath(); ctx.moveTo(42, y); ctx.lineTo(W - 8, y); ctx.stroke();
+    ctx.fillText(String(Math.round(v * 10) / 10), 4, y + 4);
+  });
+  ctx.beginPath();
+  pts.forEach((p, i) => { const x = px(i), y = py(p.w); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  ctx.strokeStyle = '#1b7cbb'; ctx.lineWidth = 2.5; ctx.stroke();
+  pts.forEach((p, i) => {
+    const x = px(i), y = py(p.w);
+    ctx.beginPath(); ctx.arc(x, y, 3.5, 0, 7); ctx.fillStyle = '#d9931e'; ctx.fill();
+  });
+  ctx.fillStyle = '#5d84a6';
+  ctx.fillText(fmtBR(pts[0].d), 46, H - 8);
+  const last = fmtBR(pts[pts.length - 1].d);
+  ctx.fillText(last, W - 46 - ctx.measureText(last).width, H - 8);
 }
 
 function chartPoints(key) {
   const pts = [];
   S.logs.forEach(l => l.entries.forEach(e => {
+    if (e.kind) return;
     let w = null;
     if (normName(e.name) === key) w = maxLoad(e.weight);
     else if (e.partnerName && normName(e.partnerName) === key) w = maxLoad(e.partnerWeight);
@@ -1000,6 +1290,14 @@ function openLog(id) {
   const l = S.logs.find(x => String(x.id) === String(id)); if (!l) return;
   let h = `<h3>${esc(fmtBR(l.log_date))}</h3><div class="sub">${esc(l.day_label)} • ${esc(weekdayBR(l.log_date))}</div>`;
   l.entries.forEach(e => {
+    if (e.kind === 'cardio') {
+      h += `<div class="kv"><span>🏃 Cardio — ${esc(e.machine || 'Outro')}</span><b>${e.minutes} min</b></div>`;
+      return;
+    }
+    if (e.kind === 'abs') {
+      h += `<div class="kv"><span>🔥 Abs — ${esc(e.exercise || 'Abs')}</span><b>${e.sets ? esc(String(e.sets)) + ' séries' : '—'}</b></div>`;
+      return;
+    }
     h += `<div class="kv"><span>${esc(e.name)} <small style="color:var(--muted)">(${esc(e.variant||'A')})</small><br>
       <small style="color:var(--muted)">${esc(e.sets||'')}× ${esc(e.reps||'')} ${esc(e.technique||'')}</small></span>
       <b style="color:var(--gold)">${esc(e.weight||'—')}</b></div>`;
@@ -1007,6 +1305,10 @@ function openLog(id) {
       <b style="color:var(--gold)">${esc(e.partnerWeight||'—')}</b></div>`;
     if (e.notes) h += `<div class="sub" style="margin:-2px 0 6px">📝 ${esc(e.notes)}</div>`;
   });
+  const ex = workoutExtras()[l.log_date] || {};
+  if (ex.kcal || ex.rpe) {
+    h += `<div class="kv"><span>📊 Resumo do treino</span><b>${ex.kcal ? '🔥 ~' + ex.kcal + ' kcal' : ''}${ex.kcal && ex.rpe ? ' • ' : ''}${ex.rpe ? 'RPE ' + ex.rpe + '/10' : ''}</b></div>`;
+  }
   if (l.notes) h += `<div class="sub">📝 ${esc(l.notes)}</div>`;
   h += `<button class="btn primary" id="l-card">Ver cartão 📸</button><button class="btn danger" id="l-del">Excluir este treino</button><button class="btn" id="l-close">Fechar</button>`;
   openModal(h);
@@ -1015,7 +1317,8 @@ function openLog(id) {
     const sum = (S.summaries || []).find(s => s.log_date === l.log_date) || {};
     openShareCard({ log_date: l.log_date, day_label: l.day_label,
       volume_lbs: logVolume({ entries: l.entries }), duration_min: +sum.duration_min || 0,
-      exercises_count: l.entries.length, streak: streakDays(), entries: l.entries });
+      exercises_count: l.entries.filter(e => !e.kind).length, streak: streakDays(),
+      entries: l.entries, kcal: ex.kcal || null });
   });
   $('#l-del').addEventListener('click', async () => {
     if (!confirm('Excluir este treino do histórico?')) return;
