@@ -38,6 +38,14 @@ const SB = {
     this._setSession(data);
     return data;
   },
+  // link mágico de login/cadastro: quem abre o link no e-mail entra direto.
+  // Não mexe na sessão atual de quem envia — serve pra convidar amigo.
+  async otp(email, redirectTo) {
+    const body = { email, create_user: true };
+    if (redirectTo) body.options = { emailRedirectTo: redirectTo };
+    await this._auth('/otp', body, false);
+    return true;
+  },
   async signOut() {
     try { await this._auth('/logout', {}, true); } catch (e) { /* ignora */ }
     this.token = null; this.refreshToken = null; this.user = null;

@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v46'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v47'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -218,6 +218,8 @@ async function enterApp() {
   try { S.reactions = await Store.getReactions(); } catch (e) { S.reactions = []; }
   try { S.summaries = await Store.getSummaries(); } catch (e) { S.summaries = []; }
   await loadDraft();
+  // pareamento: se alguém me emparelhou, retribuo (não bloqueia a entrada)
+  try { Store.ensurePairBack(); } catch (e) {}
   S.todayDate = todayISO();
   const n = S.plan.days.length || 1;
   S.todayIdx = computeTodayIdx(); // fixo por dia; anda so no dia seguinte ao treino feito
@@ -2058,6 +2060,14 @@ function renderConta() {
     <div class="sub">${esc(Store.user.email)}</div>
     <span class="badge ${cloud?'':'dim'}">${cloud ? '☁️ conta na nuvem' : '📱 conta local'}</span></div>`;
 
+  h += `<div class="card"><h3>💞 Pareamento</h3><div class="sub" id="c-pairinfo">Verificando... ⏳</div></div>`;
+
+  h += `<div class="card"><h3>👥 Convidar amigo</h3>
+    <div class="sub">Ele recebe um link no e-mail e entra direto — com conta própria, plano próprio e <b>sem acesso aos seus dados</b> nem aos da Eliza.</div>
+    <label class="lbl">E-mail do amigo</label>
+    <input id="c-invemail" type="email" inputmode="email" placeholder="amigo@email.com">
+    <button class="btn primary" id="c-invite">Enviar convite ✉️</button></div>`;
+
   h += `<div class="card"><h3>Banco de dados (nuvem)</h3>
     <div class="sub">☁️ Nuvem já configurada — é só criar sua conta que tudo sincroniza entre o Android e o iPhone (e a conta da Eliza).</div>
     <label class="lbl">Supabase URL</label><input id="c-url" placeholder="https://xyz.supabase.co" value="${esc(cfg.url||'')}">
@@ -2148,6 +2158,23 @@ function renderConta() {
   });
   const cc = $('#c-clear'); if (cc) cc.addEventListener('click', () => {
     localStorage.removeItem('casalnavy.sbconfig'); Store.cfg = {...DEFAULT_SB}; SB.configure(Store.cfg.url, Store.cfg.key); renderConta(); toast('Conexão padrão restaurada. ☁️');
+  });
+  const inv = $('#c-invite');
+  if (inv) inv.addEventListener('click', async () => {
+    const em = $('#c-invemail').value;
+    toast('Enviando convite... ⏳');
+    try {
+      await Store.inviteFriend(em);
+      $('#c-invemail').value = '';
+      savedToast('Convite enviado! ✉️ Ele entra pelo link no e-mail.');
+    } catch (e) { toast('Erro: ' + e.message); }
+  });
+  Store.getPair().then(p => {
+    const el = document.getElementById('c-pairinfo');
+    if (!el) return;
+    el.innerHTML = p
+      ? `Emparelhado com <b>${esc(p.partner_name || 'parceiro(a)')}</b> 💞<div class="sub" style="margin:4px 0 0">Vocês veem o Duelo e os check-ins um do outro. Amigos sem pareamento não veem nada de vocês.</div>`
+      : `Sem pareamento — só você vê seus dados. 💪`;
   });
   $('#c-expjson').addEventListener('click', async () => {
     const data = { app: 'casal-navy', user: Store.user.name, exported_at: new Date().toISOString(),

@@ -79,16 +79,20 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
 
-    // ---------- check-in / check-out na academia: avisa o outro do casal ----------
+    // ---------- check-in / check-out na academia: avisa o par ----------
     if (table === "gym_checkins") {
       const fromId = String(rec.user_id || "");
       const fromName = String(rec.user_name || "").trim() || "Seu amor";
       const isOut = String(rec.type || "in") === "out";
       if (!fromId) return json({ skipped: "empty" });
-      const { data: profiles, error: pErr } = await supabase.from("profiles").select("id");
+      // isolamento ("modo amigo"): só o parceiro emparelhado recebe
+      const { data: pairs, error: pErr } = await supabase
+        .from("couple_pairs")
+        .select("partner_id")
+        .eq("user_id", fromId);
       if (pErr) throw pErr;
-      const targets = (profiles || [])
-        .map((p: { id: string }) => p.id)
+      const targets = (pairs || [])
+        .map((p: { partner_id: string }) => p.partner_id)
         .filter((id: string) => id && id !== fromId);
       if (!targets.length) return json({ skipped: "no-recipient" });
       const title = isOut ? "🏁 Check-out da academia" : "💪 Check-in na academia";

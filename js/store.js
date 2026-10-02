@@ -34,6 +34,39 @@ const Store = {
   async boot() {
     const cfg = this._ls('sbconfig') || DEFAULT_SB;
     if (cfg && cfg.url && cfg.key) { this.cfg = cfg; SB.configure(cfg.url, cfg.key); }
+    // callback do link mágico (#access_token=...): cria a sessão sem pedir senha
+    try {
+      const h = (typeof location !== 'undefined' && location.hash) || '';
+      if (h.indexOf('access_token=') > 0 && SB.ready) {
+        const p = {};
+        h.slice(1).split('&').forEach(kv => {
+          const i = kv.indexOf('='); if (i > 0) p[decodeURIComponent(kv.slice(0, i))] = decodeURIComponent(kv.slice(i + 1));
+        });
+        if (p.access_token) {
+          SB.token = p.access_token; SB.refreshToken = p.refresh_token || null;
+          try { await SB.getUser(); } catch (e) {}
+          if (SB.user && SB.user.id) {
+            this.mode = 'cloud';
+            this.user = { id: SB.user.id, email: SB.user.email || '', name: '' };
+            // primeiro acesso: cria perfil + plano padrão
+            let nm = '';
+            try {
+              const prof = await SB.sel('profiles', '?id=eq.' + SB.user.id + '&select=id,name');
+              if (prof && prof.length) nm = prof[0].name || '';
+            } catch (e) {}
+            if (!nm) {
+              nm = ((typeof prompt !== 'undefined' && prompt('Bem-vindo ao Casal Navy! 💪\nQual é o seu nome?')) || '').trim() || 'Atleta';
+              try { await SB.ins('profiles', { id: SB.user.id, name: nm, meta: { rotation_index: 0 } }); } catch (e) {}
+              try { await SB.ins('plans', { user_id: SB.user.id, name: 'Rotação A–F', days: PLAN_6DAY, active: true }); } catch (e) {}
+            }
+            this.user.name = nm;
+            this._persistSession(); this._rememberSession();
+            try { history.replaceState(null, '', location.pathname + location.search); } catch (e) {}
+            return true;
+          }
+        }
+      }
+    } catch (e) { /* segue pro fluxo normal */ }
     const sess = this._ls('session');
     if (!sess) return false;
     if (sess.mode === 'cloud' && SB.ready) {
@@ -77,6 +110,45 @@ const Store = {
       return true;
     }
     return false;
+  },
+
+  // Convida um amigo: ele recebe um link mágico no e-mail e entra direto,
+  // com conta própria e isolada (sem acesso aos seus dados). Não desloga você.
+  async inviteFriend(email) {
+    email = String(email || '').trim().toLowerCase();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) throw new Error('E-mail inválido.');
+    if (this.mode !== 'cloud' || !SB.ready) throw new Error('Ative o modo nuvem para convidar.');
+    const redirectTo = (typeof location !== 'undefined')
+      ? location.origin + location.pathname + location.search
+      : undefined;
+    await SB.otp(email, redirectTo);
+    return true;
+  },
+
+  // Pareamento: se alguém me emparelhou e eu ainda não retribuí, retribuo.
+  // (A tabela couple_pairs só existe após a migração do supabase/pairs.sql.)
+  async ensurePairBack() {
+    try {
+      if (this.mode !== 'cloud' || !this.user) return;
+      const me = this.user.id;
+      const inbound = await SB.sel('couple_pairs', '?partner_id=eq.' + me + '&select=user_id');
+      if (!inbound || !inbound.length) return;
+      const mine = await SB.sel('couple_pairs', '?user_id=eq.' + me + '&select=partner_id');
+      const have = new Set((mine || []).map(r => String(r.partner_id)));
+      for (const r of inbound) {
+        const pid = String(r.user_id);
+        if (pid && pid !== String(me) && !have.has(pid)) {
+          try { await SB.ins('couple_pairs', { user_id: me, partner_id: pid, partner_name: '' }); } catch (e) {}
+        }
+      }
+    } catch (e) { /* tabela ainda não existe: ignora */ }
+  },
+  async getPair() {
+    try {
+      if (this.mode !== 'cloud' || !this.user) return null;
+      const rows = await SB.sel('couple_pairs', '?user_id=eq.' + this.user.id + '&select=partner_id,partner_name&limit=1');
+      return (rows && rows[0]) || null;
+    } catch (e) { return null; }
   },
 
   async signUp(name, email, password) {
