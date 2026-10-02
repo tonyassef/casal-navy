@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v45'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v46'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -197,6 +197,7 @@ function refreshActive() {
   else if (s === 'recados') renderRecados();
   else if (s === 'calendario') renderCalendario();
   else if (s === 'desafios') renderDesafios();
+  else if (s === 'album') renderAlbum();
 }
 
 function showScreen(name) {
@@ -221,7 +222,7 @@ async function enterApp() {
   const n = S.plan.days.length || 1;
   S.todayIdx = computeTodayIdx(); // fixo por dia; anda so no dia seguinte ao treino feito
   if (S.draft && S.draft.logDate !== S.todayDate) { /* mantem rascunho de outro dia */ }
-  renderHoje(); renderHistorico(); renderPlano(); renderConta(); renderCalendario(); renderRecados(); renderDesafios();
+  renderHoje(); renderHistorico(); renderPlano(); renderConta(); renderCalendario(); renderRecados(); renderDesafios(); renderAlbum();
   showScreen('hoje');
   // Se as notificacoes ja foram permitidas, garante a inscricao push atualizada
   if (Store.pushSupported() && Store.pushPermission() === 'granted') Store.ensurePushSubscription();
@@ -369,6 +370,9 @@ function renderHoje() {
       <select id="f-rpe"><option value="">—</option>${[1,2,3,4,5,6,7,8,9,10].map(n=>`<option value="${n}" ${String(draft&&draft.rpe)===String(n)?'selected':''}>${n}</option>`).join('')}</select></div>
     </div>
     <div class="sub">O cardio e o abs entram no histórico e nas estatísticas. 💪</div>
+    <label class="lbl">Foto do treino 📸</label>
+    <div class="row2"><div><button class="btn" id="f-photo">📸 Adicionar foto do treino</button></div></div>
+    <div id="f-photos" class="mini-thumbs"></div>
   </div>`;
   h += `<button class="btn primary" id="btn-finish">Concluir treino ✓</button>
         <button class="btn spotify" id="btn-spotify">🎵 Tocar playlist de treino</button>
@@ -417,6 +421,9 @@ function renderHoje() {
   };
   ['f-cardio-done','f-cardio-machine','f-cardio-min','f-abs-done','f-abs-ex','f-abs-sets','f-rpe']
     .forEach(id => { const el = document.getElementById(id); if (el) el.addEventListener('change', updFin); });
+  const fp = document.getElementById('f-photo');
+  if (fp) fp.addEventListener('click', () => pickPhoto(f => openPhotoEditor(f, S.todayDate, dayLabel(S.plan.days[S.todayIdx]))));
+  paintTodayThumbs();
   $('#btn-discard').addEventListener('click', () => { clearDraft(); renderHoje(); toast('Rascunho descartado.'); });
 }
 
@@ -868,6 +875,271 @@ function openShareCard(o) {
   });
   $('#sh-dl').addEventListener('click', async () => dlFile(await getFile()));
   $('#sh-close').addEventListener('click', closeModal);
+}
+
+/* ================= ÁLBUM DO CASAL 📸 ================= */
+// Fotos do treino guardadas no aparelho (IndexedDB — funciona offline).
+// No fim da semana dá pra gerar o vídeo "Quadrinhos da Semana" em estilo HQ.
+function albumDB() {
+  return new Promise((res, rej) => {
+    const rq = indexedDB.open('casal-navy', 1);
+    rq.onupgradeneeded = () => {
+      if (!rq.result.objectStoreNames.contains('photos'))
+        rq.result.createObjectStore('photos', { keyPath: 'id', autoIncrement: true });
+    };
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  });
+}
+async function albumAdd(ph) {
+  const db = await albumDB();
+  return new Promise((res, rej) => {
+    const rq = db.transaction('photos', 'readwrite').objectStore('photos').add(Object.assign({ createdAt: Date.now() }, ph));
+    rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
+  });
+}
+async function albumList() {
+  const db = await albumDB();
+  return new Promise((res, rej) => {
+    const rq = db.transaction('photos').objectStore('photos').getAll();
+    rq.onsuccess = () => res((rq.result || []).sort((a, b) => b.createdAt - a.createdAt));
+    rq.onerror = () => rej(rq.error);
+  });
+}
+async function albumDelete(id) {
+  const db = await albumDB();
+  return new Promise((res, rej) => {
+    const rq = db.transaction('photos', 'readwrite').objectStore('photos').delete(id);
+    rq.onsuccess = () => res(); rq.onerror = () => rej(rq.error);
+  });
+}
+function pickPhoto(cb) {
+  const inp = document.createElement('input');
+  inp.type = 'file'; inp.accept = 'image/*';
+  inp.onchange = () => { const f = inp.files && inp.files[0]; if (f) cb(f); };
+  inp.click();
+}
+function blobToImage(blob) {
+  return new Promise((res, rej) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => { URL.revokeObjectURL(url); res(img); };
+    img.onerror = rej; img.src = url;
+  });
+}
+async function downscaleBlob(blob, maxW) {
+  const img = await blobToImage(blob);
+  const sc = Math.min(1, maxW / img.naturalWidth);
+  const cv = document.createElement('canvas');
+  cv.width = Math.max(1, Math.round(img.naturalWidth * sc));
+  cv.height = Math.max(1, Math.round(img.naturalHeight * sc));
+  cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+  return new Promise(res => cv.toBlob(b => res(b || blob), 'image/jpeg', 0.85));
+}
+// filtro HQ: posteriza + satura + contorno (Sobel)
+function comicCanvas(img, maxW) {
+  const sc = Math.min(1, (maxW || 960) / img.naturalWidth);
+  const W = Math.max(2, Math.round(img.naturalWidth * sc)), H = Math.max(2, Math.round(img.naturalHeight * sc));
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const ctx = cv.getContext('2d');
+  ctx.drawImage(img, 0, 0, W, H);
+  const id = ctx.getImageData(0, 0, W, H), px = id.data;
+  const poster = v => Math.max(0, Math.min(255, Math.round(v / 64) * 64));
+  const gray = new Float32Array(W * H);
+  for (let i = 0; i < W * H; i++) {
+    let r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2];
+    const avg = (r + g + b) / 3;
+    r = avg + (r - avg) * 1.5; g = avg + (g - avg) * 1.5; b = avg + (b - avg) * 1.5;
+    px[i * 4] = poster(r); px[i * 4 + 1] = poster(g); px[i * 4 + 2] = poster(b);
+    gray[i] = 0.299 * r + 0.587 * g + 0.114 * b;
+  }
+  const edge = new Uint8Array(W * H);
+  for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
+    const i = y * W + x;
+    const gx = -gray[i - W - 1] - 2 * gray[i - 1] - gray[i + W - 1] + gray[i - W + 1] + 2 * gray[i + 1] + gray[i + W + 1];
+    const gy = -gray[i - W - 1] - 2 * gray[i - W] - gray[i - W + 1] + gray[i + W - 1] + 2 * gray[i + W] + gray[i + W + 1];
+    if (gx * gx + gy * gy > 8100) edge[i] = 1;
+  }
+  for (let i = 0; i < W * H; i++) if (edge[i]) { px[i * 4] = 25; px[i * 4 + 1] = 25; px[i * 4 + 2] = 30; }
+  ctx.putImageData(id, 0, 0);
+  return cv;
+}
+function muscleShort(label) {
+  const s = String(label || '');
+  return s.split(' — ')[1] || s.split(' — ')[0] || '';
+}
+function openPhotoEditor(file, dateISO, dayLabel) {
+  const url = URL.createObjectURL(file);
+  openModal(`<h3>📸 Nova foto</h3>
+    <img src="${url}" style="width:100%;border-radius:12px;max-height:46vh;object-fit:cover;display:block;margin-bottom:8px">
+    <label class="lbl">Data</label><input type="date" id="pe-d" value="${esc(dateISO || todayISO())}">
+    <label class="lbl">Legenda (opcional)</label><input id="pe-c" placeholder="Ex: peitão pago 😏" maxlength="80">
+    <button class="btn primary" id="pe-save">Salvar no álbum ✓</button>
+    <button class="btn" id="pe-x">Cancelar</button>`);
+  $('#pe-x').addEventListener('click', () => { URL.revokeObjectURL(url); closeModal(); });
+  $('#pe-save').addEventListener('click', async () => {
+    toast('Salvando... ⏳');
+    try {
+      const small = await downscaleBlob(file, 1280);
+      await albumAdd({ date: $('#pe-d').value || todayISO(), dayLabel: dayLabel || '',
+        caption: $('#pe-c').value.trim().slice(0, 80), blob: small });
+      URL.revokeObjectURL(url); closeModal();
+      savedToast('Foto salva no álbum! 📸');
+      if (S.screen === 'album') renderAlbum(); else renderHoje();
+    } catch (e) { toast('Não deu pra salvar 😕'); }
+  });
+}
+function openAlbumPhoto(id) {
+  albumList().then(all => {
+    const p = all.find(x => x.id === id); if (!p) return;
+    const url = URL.createObjectURL(p.blob);
+    openModal(`<h3>${esc(fmtBR(p.date))}</h3>
+      <div class="sub">${esc(muscleShort(p.dayLabel))}${p.caption ? ' • ' + esc(p.caption) : ''}</div>
+      <img src="${url}" style="width:100%;border-radius:12px;display:block;margin:8px 0">
+      <button class="btn danger" id="ap-del">Excluir foto</button>
+      <button class="btn" id="ap-x">Fechar</button>`);
+    $('#ap-x').addEventListener('click', () => { URL.revokeObjectURL(url); closeModal(); });
+    $('#ap-del').addEventListener('click', async () => {
+      if (!confirm('Excluir esta foto do álbum?')) return;
+      await albumDelete(id); URL.revokeObjectURL(url); closeModal(); renderAlbum();
+    });
+  });
+}
+async function renderAlbum() {
+  const el = $('#album-content'); if (!el) return;
+  el.innerHTML = `<div class="album-hero"><h3>🎬 Quadrinhos da Semana</h3>
+    <div class="sub">Suas fotos dos últimos 7 dias viram um vídeo estilo HQ, pronto pra postar.</div>
+    <button class="btn gold" id="alb-video">Gerar vídeo da semana 🎞️</button></div>
+    <button class="btn primary" id="alb-add">📸 Adicionar foto</button>
+    <div class="album-grid" id="alb-grid"><div class="sub">Carregando... ⏳</div></div>`;
+  $('#alb-add').addEventListener('click', () => pickPhoto(f => openPhotoEditor(f, todayISO(), '')));
+  $('#alb-video').addEventListener('click', makeComicVideo);
+  let all = [];
+  try { all = await albumList(); } catch (e) {}
+  const g = $('#alb-grid'); if (!g) return;
+  if (!all.length) { g.innerHTML = '<div class="sub">Nenhuma foto ainda. Adicione a primeira! 📸</div>'; return; }
+  g.innerHTML = '';
+  all.forEach(p => {
+    const d = document.createElement('div');
+    d.className = 'album-ph';
+    const url = URL.createObjectURL(p.blob);
+    const img = document.createElement('img');
+    img.loading = 'lazy'; img.src = url;
+    img.addEventListener('click', () => openAlbumPhoto(p.id));
+    const cap = document.createElement('div');
+    cap.className = 'cap';
+    cap.innerHTML = esc(fmtBR(p.date)) + (muscleShort(p.dayLabel) ? ' • ' + esc(muscleShort(p.dayLabel)) : '') + (p.caption ? '<br>' + esc(p.caption) : '');
+    const del = document.createElement('button');
+    del.className = 'del'; del.textContent = '×'; del.title = 'Excluir';
+    del.addEventListener('click', async ev => {
+      ev.stopPropagation();
+      if (!confirm('Excluir esta foto do álbum?')) return;
+      await albumDelete(p.id); URL.revokeObjectURL(url); renderAlbum();
+    });
+    d.appendChild(img); d.appendChild(cap); d.appendChild(del);
+    g.appendChild(d);
+  });
+}
+function sleepMs(ms) { return new Promise(r => setTimeout(r, ms)); }
+function fitText(ctx, txt, maxW) {
+  let t = String(txt || '');
+  while (t.length > 4 && ctx.measureText(t).width > maxW) t = t.slice(0, -2);
+  return t.length < String(txt).length ? t.slice(0, -1) + '…' : t;
+}
+async function playCard(ctx, W, H, l1, l2, sub, secs) {
+  secs = secs || 1.8;
+  const frames = Math.max(1, Math.round(secs * 30));
+  for (let f = 0; f < frames; f++) {
+    const t = f / frames;
+    const g = ctx.createLinearGradient(0, 0, W, H);
+    g.addColorStop(0, '#0b2a4a'); g.addColorStop(1, '#1b5c9e');
+    ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = 'rgba(255,255,255,.07)';
+    for (let y = 24; y < H; y += 48) for (let x = 24; x < W; x += 48) {
+      ctx.beginPath(); ctx.arc(x, y, 7, 0, 7); ctx.fill();
+    }
+    const sc = 0.7 + 0.3 * t;
+    ctx.save(); ctx.translate(W / 2, H / 2 - 40); ctx.scale(sc, sc);
+    ctx.textAlign = 'center'; ctx.lineWidth = 10; ctx.strokeStyle = '#0b2a4a';
+    ctx.font = '900 92px system-ui, sans-serif';
+    ctx.strokeText(l1, 0, 0); ctx.fillStyle = '#ffd76a'; ctx.fillText(l1, 0, 0);
+    ctx.strokeText(l2, 0, 104); ctx.fillStyle = '#ffffff'; ctx.fillText(l2, 0, 104);
+    ctx.restore();
+    ctx.fillStyle = '#cfe7fa'; ctx.font = '500 40px system-ui, sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(sub || '', W / 2, H - 220);
+    await sleepMs(1000 / 30);
+  }
+}
+async function playPhoto(ctx, W, H, cc, caption, secs) {
+  const fps = 30, frames = Math.max(1, Math.round(secs * fps));
+  const sc0 = Math.max(W / cc.width, H / cc.height);
+  for (let f = 0; f < frames; f++) {
+    const t = f / frames;
+    const z = sc0 * (1 + 0.10 * t);
+    const dw = cc.width * z, dh = cc.height * z;
+    const dx = (W - dw) / 2 - 30 * t, dy = (H - dh) / 2;
+    ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+    ctx.drawImage(cc, dx, dy, dw, dh);
+    const vg = ctx.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.75);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.35)');
+    ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+    if (caption) {
+      const bh = 120;
+      ctx.fillStyle = '#ffd76a'; ctx.fillRect(0, H - bh - 90, W, bh);
+      ctx.fillStyle = '#0b2a4a'; ctx.font = '800 50px system-ui, sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(fitText(ctx, caption, W - 60), W / 2, H - 90 - 44);
+    }
+    await sleepMs(1000 / fps);
+  }
+}
+async function makeComicVideo() {
+  toast('Gerando seu vídeo... 🎬');
+  try {
+    const all = await albumList();
+    const since = todayISO(new Date(Date.now() - 6 * 864e5));
+    const list = all.filter(p => p.date >= since).slice(0, 10).reverse();
+    if (!list.length) { toast('Sem fotos nos últimos 7 dias 📸'); return; }
+    const items = [];
+    for (const p of list) items.push({ p, img: await blobToImage(p.blob), cc: null });
+    items.forEach(it => { it.cc = comicCanvas(it.img, 900); });
+    const W = 720, H = 1280;
+    const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+    const ctx = cv.getContext('2d');
+    const stream = cv.captureStream(30);
+    const mime = (window.MediaRecorder && MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) ? 'video/webm;codecs=vp9' : 'video/webm';
+    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 4000000 });
+    const chunks = [];
+    rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
+    const done = new Promise(res => { rec.onstop = res; });
+    rec.start(500);
+    const ds = list.map(p => p.date).sort();
+    await playCard(ctx, W, H, 'QUADRINHOS', 'DA SEMANA 💪', fmtBR(ds[0]) + ' — ' + fmtBR(ds[ds.length - 1]));
+    for (const it of items) {
+      const mus = muscleShort(it.p.dayLabel);
+      await playPhoto(ctx, W, H, it.cc, (mus ? mus : 'Treino') + ' 💪', 2.6);
+    }
+    await playCard(ctx, W, H, 'SEMANA', 'PAGA! 🔥', 'Feito no Casal Navy 🏋️');
+    rec.stop(); await done;
+    const blob = new Blob(chunks, { type: 'video/webm' });
+    if (!blob.size) { toast('Falha ao gerar o vídeo 😕'); return; }
+    await dlFile(new File([blob], 'quadrinhos-da-semana.webm', { type: 'video/webm' }));
+    savedToast('Vídeo pronto! 🎬');
+  } catch (e) { toast('Não deu pra gerar o vídeo 😕'); }
+}
+
+async function paintTodayThumbs() {
+  const box = document.getElementById('f-photos'); if (!box) return;
+  try {
+    const all = await albumList();
+    const tod = all.filter(p => p.date === S.todayDate).slice(0, 6);
+    box.innerHTML = '';
+    tod.forEach(p => {
+      const img = document.createElement('img');
+      img.src = URL.createObjectURL(p.blob); img.alt = 'foto do treino';
+      box.appendChild(img);
+    });
+    if (!tod.length) box.innerHTML = '<div class="sub" style="margin:0">Tire a foto do pump de hoje 💪</div>';
+  } catch (e) {}
 }
 
 /* ================= DESAFIOS DO CASAL ⚔️ ================= */
@@ -1968,6 +2240,7 @@ $$('#tabbar button').forEach(b => b.addEventListener('click', () => {
   if (s === 'hoje') renderHoje(); if (s === 'historico') renderHistorico();
   if (s === 'plano') renderPlano(); if (s === 'conta') renderConta();
   if (s === 'calendario') renderCalendario(); if (s === 'desafios') renderDesafios();
+  if (s === 'album') renderAlbum();
 }));
 
 document.addEventListener('DOMContentLoaded', boot);
