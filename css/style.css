@@ -282,3 +282,7 @@ video.note-media{max-height:340px;}
 .note-rec-bar{display:flex;gap:10px;align-items:center;margin-top:6px;}
 .mural-card{margin-bottom:10px;}
 .mural-rep{margin-top:8px;padding:8px 10px;background:var(--card2);border:1px solid var(--line);border-radius:10px;font-size:14px;}
+
+/* v53: quadrinhos 2.0 */
+.beat-row{display:flex;align-items:center;gap:8px;margin:10px 0;font-size:14px;color:var(--muted);cursor:pointer;}
+.beat-row input{width:18px;height:18px;accent-color:#1b7cbb;}

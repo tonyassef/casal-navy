@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v52'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v53'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -1024,29 +1024,63 @@ async function downscaleBlob(blob, maxW) {
 }
 // filtro HQ: posteriza + satura + contorno (Sobel)
 function comicCanvas(img, maxW) {
-  const sc = Math.min(1, (maxW || 960) / img.naturalWidth);
+  // v2 "HQ de verdade": suaviza, posteriza em 6 níveis, tinta grossa (Sobel
+  // com limiar baixo) e meio-tom (halftone) nas sombras — textura de gibi.
+  const sc = Math.min(1, (maxW || 1100) / img.naturalWidth);
   const W = Math.max(2, Math.round(img.naturalWidth * sc)), H = Math.max(2, Math.round(img.naturalHeight * sc));
   const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
   const ctx = cv.getContext('2d');
   ctx.drawImage(img, 0, 0, W, H);
   const id = ctx.getImageData(0, 0, W, H), px = id.data;
-  const poster = v => Math.max(0, Math.min(255, Math.round(v / 64) * 64));
-  const gray = new Float32Array(W * H);
-  for (let i = 0; i < W * H; i++) {
-    let r = px[i * 4], g = px[i * 4 + 1], b = px[i * 4 + 2];
+  const N = W * H;
+  // 1) blur 3x3 pra limpar ruído antes de posterizar
+  const sm = new Float32Array(N * 3);
+  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+    let r = 0, g = 0, b = 0, n = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const xx = x + dx, yy = y + dy;
+      if (xx < 0 || yy < 0 || xx >= W || yy >= H) continue;
+      const j = (yy * W + xx) * 4;
+      r += px[j]; g += px[j + 1]; b += px[j + 2]; n++;
+    }
+    const i3 = (y * W + x) * 3;
+    sm[i3] = r / n; sm[i3 + 1] = g / n; sm[i3 + 2] = b / n;
+  }
+  // 2) saturação + contraste + posterização em 6 níveis
+  const poster = v => { const l = 6; return Math.round(Math.round(v / 255 * (l - 1)) / (l - 1) * 255); };
+  const gray = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    const i3 = i * 3;
+    let r = sm[i3], g = sm[i3 + 1], b = sm[i3 + 2];
     const avg = (r + g + b) / 3;
-    r = avg + (r - avg) * 1.5; g = avg + (g - avg) * 1.5; b = avg + (b - avg) * 1.5;
-    px[i * 4] = poster(r); px[i * 4 + 1] = poster(g); px[i * 4 + 2] = poster(b);
+    r = avg + (r - avg) * 1.7; g = avg + (g - avg) * 1.7; b = avg + (b - avg) * 1.7;
+    r = (r - 128) * 1.12 + 128; g = (g - 128) * 1.12 + 128; b = (b - 128) * 1.12 + 128;
+    r = poster(r); g = poster(g); b = poster(b);
+    const j = i * 4;
+    px[j] = r; px[j + 1] = g; px[j + 2] = b;
     gray[i] = 0.299 * r + 0.587 * g + 0.114 * b;
   }
-  const edge = new Uint8Array(W * H);
+  // 3) tinta: Sobel com limiar baixo = traço grosso de gibi
+  const edge = new Uint8Array(N);
   for (let y = 1; y < H - 1; y++) for (let x = 1; x < W - 1; x++) {
     const i = y * W + x;
     const gx = -gray[i - W - 1] - 2 * gray[i - 1] - gray[i + W - 1] + gray[i - W + 1] + 2 * gray[i + 1] + gray[i + W + 1];
     const gy = -gray[i - W - 1] - 2 * gray[i - W] - gray[i - W + 1] + gray[i + W - 1] + 2 * gray[i + W] + gray[i + W + 1];
-    if (gx * gx + gy * gy > 8100) edge[i] = 1;
+    if (gx * gx + gy * gy > 4900) edge[i] = 1;
   }
-  for (let i = 0; i < W * H; i++) if (edge[i]) { px[i * 4] = 25; px[i * 4 + 1] = 25; px[i * 4 + 2] = 30; }
+  // 4) halftone: pontinhos nas sombras
+  const dot = 7;
+  for (let i = 0; i < N; i++) {
+    const j = i * 4;
+    if (edge[i]) { px[j] = 20; px[j + 1] = 20; px[j + 2] = 26; continue; }
+    const lum = gray[i] / 255;
+    if (lum < 0.55) {
+      const x = i % W, y = (i / W) | 0;
+      const dx = (x % dot) - dot / 2, dy = (y % dot) - dot / 2;
+      const rad = (0.55 - lum) / 0.55 * dot * 0.62;
+      if (dx * dx + dy * dy < rad * rad) { px[j] = 20; px[j + 1] = 20; px[j + 2] = 26; }
+    }
+  }
   ctx.putImageData(id, 0, 0);
   return cv;
 }
@@ -1094,7 +1128,8 @@ function openAlbumPhoto(id) {
 async function renderAlbum() {
   const el = $('#album-content'); if (!el) return;
   el.innerHTML = `<div class="album-hero"><h3>🎬 Quadrinhos da Semana</h3>
-    <div class="sub">Suas fotos dos últimos 7 dias viram um vídeo estilo HQ, pronto pra postar.</div>
+    <div class="sub">Suas fotos dos últimos 7 dias viram um vídeo estilo HQ com beat, pronto pra postar.</div>
+    <label class="beat-row"><input type="checkbox" id="beat-toggle" checked> 🎵 Com beat no vídeo</label>
     <button class="btn gold" id="alb-video">Gerar vídeo da semana 🎞️</button></div>
     <button class="btn primary" id="alb-add">📸 Adicionar foto</button>
     <div class="album-grid" id="alb-grid"><div class="sub">Carregando... ⏳</div></div>`;
@@ -1178,6 +1213,79 @@ async function playPhoto(ctx, W, H, cc, caption, secs) {
     await sleepMs(1000 / fps);
   }
 }
+// Beat "phonk" 140 BPM sintetizado via WebAudio — vai EMBUTIDO no vídeo,
+// então toca em qualquer lugar (WhatsApp, galeria, Instagram).
+function hypeBeatDestination() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return null;
+  const ac = new AC();
+  const dest = ac.createMediaStreamDestination();
+  const master = ac.createGain(); master.gain.value = 0.5;
+  const comp = ac.createDynamicsCompressor();
+  master.connect(comp); comp.connect(dest);
+  const bpm = 140, s16 = 60 / bpm / 4;
+  const nb = ac.createBuffer(1, ac.sampleRate, ac.sampleRate);
+  const nd = nb.getChannelData(0);
+  for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  function kick(t) {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(160, t);
+    o.frequency.exponentialRampToValueAtTime(48, t + 0.11);
+    g.gain.setValueAtTime(1, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.24);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t + 0.26);
+  }
+  function hat(t, open) {
+    const s = ac.createBufferSource(); s.buffer = nb;
+    const f = ac.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = 7500;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.3, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + (open ? 0.18 : 0.045));
+    s.connect(f); f.connect(g); g.connect(master); s.start(t); s.stop(t + 0.2);
+  }
+  function snare(t) {
+    const s = ac.createBufferSource(); s.buffer = nb;
+    const f = ac.createBiquadFilter(); f.type = 'bandpass'; f.frequency.value = 1900; f.Q.value = 0.8;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.5, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.16);
+    s.connect(f); f.connect(g); g.connect(master); s.start(t); s.stop(t + 0.18);
+  }
+  function bass(t, freq, len) {
+    const o = ac.createOscillator(); o.type = 'sawtooth'; o.frequency.value = freq;
+    const f = ac.createBiquadFilter(); f.type = 'lowpass'; f.frequency.value = 320;
+    const g = ac.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.45, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.001, t + len);
+    o.connect(f); f.connect(g); g.connect(master); o.start(t); o.stop(t + len + 0.03);
+  }
+  const bassLine = [55, 0, 55, 0, 65.4, 0, 55, 0, 49, 0, 49, 0, 58.3, 0, 73.4, 0,
+                    55, 0, 55, 0, 65.4, 0, 55, 0, 49, 0, 58.3, 0, 65.4, 82.4, 0, 0];
+  function scheduleBar(t0) {
+    for (let s = 0; s < 32; s++) {
+      const t = t0 + s * s16;
+      if (s % 8 === 0) kick(t);
+      if (s % 8 === 4) snare(t);
+      if (s % 2 === 0) hat(t, false);
+      if (s % 4 === 2) hat(t, true);
+      const bf = bassLine[s];
+      if (bf) bass(t, bf, s16 * 1.8);
+    }
+  }
+  return {
+    stream: dest.stream,
+    start(durSec) {
+      try { if (ac.state === 'suspended') ac.resume(); } catch (e) {}
+      const t0 = ac.currentTime + 0.08;
+      const barLen = 32 * s16;
+      for (let t = t0; t < t0 + durSec + 2; t += barLen) scheduleBar(t);
+    },
+    stop() { try { ac.close(); } catch (e) {} }
+  };
+}
+
 async function makeComicVideo() {
   toast('Gerando seu vídeo... 🎬');
   try {
@@ -1185,15 +1293,26 @@ async function makeComicVideo() {
     const since = todayISO(new Date(Date.now() - 6 * 864e5));
     const list = all.filter(p => p.date >= since).slice(0, 10).reverse();
     if (!list.length) { toast('Sem fotos nos últimos 7 dias 📸'); return; }
+    const withBeat = $('#beat-toggle') ? $('#beat-toggle').checked : true;
     const items = [];
     for (const p of list) items.push({ p, img: await blobToImage(p.blob), cc: null });
-    items.forEach(it => { it.cc = comicCanvas(it.img, 900); });
+    toast('Aplicando estilo HQ... 🎨');
+    items.forEach(it => { it.cc = comicCanvas(it.img, 1100); });
     const W = 720, H = 1280;
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const ctx = cv.getContext('2d');
-    const stream = cv.captureStream(30);
+    const vstream = cv.captureStream(30);
+    let beat = null, mstream = vstream;
+    if (withBeat) {
+      beat = hypeBeatDestination();
+      if (beat && beat.stream.getAudioTracks().length) {
+        mstream = new MediaStream([...vstream.getVideoTracks(), ...beat.stream.getAudioTracks()]);
+        beat.start(90);
+      } else beat = null;
+    }
     const qmime = getVideoMime();
-    const rec = qmime ? new MediaRecorder(stream, { mimeType: qmime, videoBitsPerSecond: 4000000 }) : new MediaRecorder(stream);
+    const rec = qmime ? new MediaRecorder(mstream, { mimeType: qmime, videoBitsPerSecond: 5000000 })
+                      : new MediaRecorder(mstream);
     const chunks = [];
     rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
     const done = new Promise(res => { rec.onstop = res; });
@@ -1206,13 +1325,34 @@ async function makeComicVideo() {
     }
     await playCard(ctx, W, H, 'SEMANA', 'PAGA! 🔥', 'Feito no Casal Navy 🏋️');
     rec.stop(); await done;
+    if (beat) beat.stop();
     const qtype = (qmime || '').split(';')[0] || 'video/mp4';
     const qext = qtype.includes('mp4') ? 'mp4' : 'webm';
     const blob = new Blob(chunks, { type: qtype });
     if (!blob.size) { toast('Falha ao gerar o vídeo 😕'); return; }
-    await dlFile(new File([blob], 'quadrinhos-da-semana.' + qext, { type: qtype }));
-    savedToast('Vídeo pronto! 🎬');
+    const file = new File([blob], 'quadrinhos-da-semana.' + qext, { type: qtype });
+    openComicPreview(file);
   } catch (e) { toast('Não deu pra gerar o vídeo 😕'); }
+}
+
+// prévia do vídeo dentro do app: assiste antes de salvar/compartilhar
+function openComicPreview(file) {
+  const url = URL.createObjectURL(file);
+  openModal(`<h3>🎬 Quadrinhos da Semana</h3>
+    <video src="${url}" controls playsinline style="width:100%;border-radius:12px;max-height:52vh;background:#000;display:block"></video>
+    <div class="sub">Assiste aqui primeiro — depois salva ou compartilha 💪</div>
+    <button class="btn primary" id="cq-share">Compartilhar 📤</button>
+    <button class="btn" id="cq-dl">Salvar na galeria ⬇️</button>
+    <button class="btn" id="cq-x">Fechar</button>`);
+  $('#cq-share').addEventListener('click', async () => {
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Quadrinhos da Semana 💪', text: 'Semana paga no Casal Navy 🔥' });
+      } else dlFile(file);
+    } catch (e) { if (!e || e.name !== 'AbortError') toast('Não deu pra compartilhar 😕'); }
+  });
+  $('#cq-dl').addEventListener('click', () => dlFile(file));
+  $('#cq-x').addEventListener('click', () => { URL.revokeObjectURL(url); closeModal(); });
 }
 
 async function paintTodayThumbs() {
