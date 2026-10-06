@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v53'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v54'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -596,6 +596,7 @@ function startRestTimer(secs, label) {
   bar.classList.remove('hidden');
   paintRest();
   restTimer.int = setInterval(restTick, 250);
+  pipWarmup(); // deixa o vídeo do PiP tocando pra flutuar sozinho ao minimizar
 }
 function restTick() {
   if (!restTimer) return;
@@ -633,7 +634,16 @@ function resumeRestTimer() {
     const raw = localStorage.getItem(REST_KEY); if (!raw) return;
     const s = JSON.parse(raw);
     const left = Math.ceil((s.endAt - Date.now()) / 1000);
-    if (left <= 0) { localStorage.removeItem(REST_KEY); return; }
+    if (left <= 0) {
+      localStorage.removeItem(REST_KEY);
+      // o descanso terminou com o app fechado: avisa ao voltar (só se foi recente)
+      if (Date.now() - s.endAt < 10 * 60 * 1000) {
+        beep();
+        try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) {}
+        toast('Descanso terminado! Bora 💪🔥');
+      }
+      return;
+    }
     const bar = $('#restbar'); if (!bar) return;
     restTimer = { endAt: s.endAt, total: s.total || left, label: s.label || 'Descanso', int: null };
     bar.classList.remove('hidden');
@@ -643,8 +653,9 @@ function resumeRestTimer() {
 }
 /* ---------- timer flutuante fora do app (Picture-in-Picture) ---------- */
 // Janelinha sempre visível por cima de outros apps (WhatsApp etc.).
-// Funciona no Android (Chrome) e no iPhone (Safari).
-let pipVideo = null, pipCanvas = null, pipCtx = null, pipOn = false;
+// AUTOMÁTICO: o vídeo fica pré-aquecido (tocando) desde o início do descanso;
+// ao minimizar, o navegador flutua sozinho — sem apertar nada.
+let pipVideo = null, pipCanvas = null, pipCtx = null, pipStream = null, pipOn = false;
 
 function pipEnsure() {
   if (pipCanvas) return true;
@@ -655,12 +666,43 @@ function pipEnsure() {
     pipVideo = document.createElement('video');
     pipVideo.muted = true;
     pipVideo.playsInline = true;
-    pipVideo.style.display = 'none';
     pipVideo.setAttribute('playsinline', '');
+    pipVideo.disablePictureInPicture = false;
+    // modo automático nativo do Chrome: flutua sozinho ao trocar de app
+    try { pipVideo.setAttribute('autoPictureInPicture', ''); } catch (e) {}
+    // fora da tela, mas RENDERIZÁVEL (display:none quebra o PiP no Chrome)
+    pipVideo.style.cssText = 'position:fixed;left:-20px;top:-20px;width:4px;height:4px;opacity:0.01;pointer-events:none;';
     document.body.appendChild(pipVideo);
+    pipVideo.addEventListener('enterpictureinpicture', () => { pipOn = true; });
     pipVideo.addEventListener('leavepictureinpicture', () => { pipOn = false; });
+    pipStream = pipCanvas.captureStream(30);
+    pipVideo.srcObject = pipStream;
     return true;
   } catch (e) { return false; }
+}
+
+// deixa o vídeo tocando desde o início do descanso (app visível + gesto do usuário)
+function pipWarmup() {
+  if (pipOn) return;
+  if (!pipEnsure()) return;
+  try {
+    drawPip(false);
+    const p = pipVideo.play();
+    if (p && p.catch) p.catch(() => {});
+  } catch (e) {}
+}
+
+// flutua agora (vídeo já está tocando — sem awaits que o background pode matar)
+function pipAuto() {
+  if (pipOn || !restTimer || !pipVideo) return;
+  try {
+    if (pipVideo.requestPictureInPicture) {
+      const p = pipVideo.requestPictureInPicture();
+      if (p && p.catch) p.catch(() => {});
+    } else if (pipVideo.webkitSetPresentationMode) {
+      pipVideo.webkitSetPresentationMode('picture-in-picture');
+    }
+  } catch (e) {}
 }
 
 function drawPip(done) {
@@ -689,18 +731,15 @@ function drawPip(done) {
 async function floatTimer(quiet) {
   if (pipOn) { unfloatTimer(); return; }
   if (!restTimer) { if (!quiet) toast('Inicia um descanso primeiro ⏱'); return; }
-  if (!pipEnsure()) { if (!quiet) toast('Não deu pra flutuar 😕'); return; }
+  pipWarmup();
   try {
-    drawPip(false);
-    pipVideo.srcObject = pipCanvas.captureStream(30);
-    await pipVideo.play();
+    // espera o vídeo ter dados (no máx. 2s) antes de pedir o PiP
+    for (let i = 0; i < 20 && pipVideo.readyState < 2; i++) await new Promise(r => setTimeout(r, 100));
     if (pipVideo.requestPictureInPicture) await pipVideo.requestPictureInPicture();
     else if (pipVideo.webkitSetPresentationMode) pipVideo.webkitSetPresentationMode('picture-in-picture');
     else throw new Error('sem PiP');
-    pipOn = true;
     if (!quiet) toast('Timer flutuando 🪟 — pode minimizar o app');
   } catch (e) {
-    pipOn = false;
     if (!quiet) toast('Seu aparelho não suporta janela flutuante 😕');
   }
 }
@@ -711,13 +750,15 @@ async function unfloatTimer() {
     else if (pipVideo && pipVideo.webkitSetPresentationMode) pipVideo.webkitSetPresentationMode('inline');
   } catch (e) {}
   pipOn = false;
-  if (pipVideo) { try { pipVideo.srcObject = null; } catch (e) {} }
 }
 
-// tenta flutuar sozinho ao minimizar o app durante o descanso
+// flutua sozinho ao minimizar o app durante o descanso
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && restTimer && !pipOn) { try { floatTimer(true); } catch (e) {} }
+  if (document.hidden) pipAuto();
+  else if (restTimer) pipWarmup();
 });
+// backup pro iPhone (pagehide dispara ao sair do app)
+window.addEventListener('pagehide', () => { pipAuto(); });
 
 /* pílula arrastável: dá pra mover o timer pra qualquer canto da tela */
 function initRestDrag() {
