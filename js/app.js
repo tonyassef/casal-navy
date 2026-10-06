@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v49'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v50'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -1775,6 +1775,70 @@ function renderPlano() {
 $('#btn-plan-edit').addEventListener('click', () => { S.editPlan = !S.editPlan; renderPlano(); });
 
 /* ================= CONTA ================= */
+/* ================= MURAL DO DIA + MÍDIA NOS RECADOS 📌 ================= */
+// A mídia fica no bucket privado "recado-media" do Supabase — só o casal vê.
+// _noteMedia guarda o anexo aguardando envio no formulário.
+const _mediaURLs = new Map();
+let _noteMedia = null;
+
+function wireRecSeg() {
+  $$('#recados-content [data-rm]').forEach(b => b.addEventListener('click', () => {
+    S.recMode = b.dataset.rm; renderRecados();
+  }));
+}
+
+async function mediaURL(path) {
+  if (!path) return '';
+  if (_mediaURLs.has(path)) return _mediaURLs.get(path);
+  try {
+    const blob = await SB.storageDownload(path);
+    const url = URL.createObjectURL(blob);
+    _mediaURLs.set(path, url);
+    return url;
+  } catch (e) { return ''; }
+}
+
+// preenche <img data-mpath> e <video data-mpath> com a URL autenticada
+async function hydrateMedia(root) {
+  const els = (root || document).querySelectorAll('[data-mpath]');
+  for (const el of els) {
+    const p = el.getAttribute('data-mpath');
+    if (!p || el.dataset.done) continue;
+    el.dataset.done = '1';
+    const url = await mediaURL(p);
+    if (!url) { el.style.display = 'none'; continue; }
+    el.src = url;
+  }
+}
+
+function mediaHTML(n) {
+  if (!n || !n.media_path) return '';
+  if (n.media_type === 'video') {
+    return `<video data-mpath="${esc(n.media_path)}" controls playsinline preload="metadata" class="note-media"></video>`;
+  }
+  return `<img data-mpath="${esc(n.media_path)}" class="note-media" alt="foto do recado">`;
+}
+
+// Mural do dia: os recados de hoje do casal num painel só, com foto e vídeo.
+function renderMural(seg) {
+  const myId = String(Store.user && Store.user.id);
+  const today = (S.notes || []).filter(n => !n.parent_id && isTodayISO(n.created_at));
+  const reps = id => (S.notes || []).filter(n => String(n.parent_id) === String(id) && isTodayISO(n.created_at));
+  const who = id => String(id) === myId ? 'Você' : null;
+  const card = n => `<div class="card mural-card">
+      <div class="note-head"><b>💌 ${esc(who(n.from_user_id) || n.from_name || 'Seu amor')}</b><span>${esc(fmtDT(n.created_at))}</span></div>
+      <div class="note-msg">${esc(n.message)}</div>
+      ${mediaHTML(n)}
+      ${reps(n.id).map(r => `<div class="mural-rep"><b>${esc(who(r.from_user_id) || r.from_name || 'Seu amor')}:</b> ${esc(r.message)}${mediaHTML(r)}</div>`).join('')}
+    </div>`;
+  $('#recados-content').innerHTML = seg + `<div class="card"><h3>📌 Mural de hoje 💕</h3>
+    <div class="sub">Os recados de hoje ficam salvos aqui — com foto e vídeo. 💌</div>
+    <div id="mural-list">${today.length ? today.map(card).join('') : '<div class="sub" style="text-align:center;padding:16px 0">Nenhum recado hoje ainda. Manda o primeiro! 💌</div>'}</div>
+  </div>`;
+  wireRecSeg();
+  hydrateMedia($('#recados-content'));
+}
+
 /* ================= RECADOS ================= */
 // Cartao de ativacao das notificacoes push (pra recado chegar na hora, com app fechado)
 function pushCard() {
@@ -1808,9 +1872,7 @@ function renderCoach(seg) {
     <div class="coach-input"><input id="coach-in" placeholder="Pergunte qualquer coisa..." maxlength="500" autocomplete="off">
     <button class="btn primary" id="coach-send">➤</button></div>
   </div>`;
-  $$('#recados-content [data-rm]').forEach(b => b.addEventListener('click', () => {
-    S.recMode = b.dataset.rm; renderRecados();
-  }));
+  wireRecSeg();
   paintCoachMsgs(false);
   const send = () => coachSend();
   $('#coach-send').addEventListener('click', send);
@@ -1897,8 +1959,9 @@ async function coachApplyAction(a) {
 /* ================= RECADOS ================= */
 function renderRecados() {
   const rmode = S.recMode || 'recados';
-  const seg = `<div class="seg"><button data-rm="recados" class="${rmode === 'recados' ? 'active' : ''}">💌 Recados</button><button data-rm="coach" class="${rmode === 'coach' ? 'active' : ''}">💬 Coach</button></div>`;
+  const seg = `<div class="seg"><button data-rm="recados" class="${rmode === 'recados' ? 'active' : ''}">💌 Recados</button><button data-rm="mural" class="${rmode === 'mural' ? 'active' : ''}">📌 Mural</button><button data-rm="coach" class="${rmode === 'coach' ? 'active' : ''}">💬 Coach</button></div>`;
   if (rmode === 'coach') { renderCoach(seg); return; }
+  if (rmode === 'mural') { renderMural(seg); return; }
   const myId = String(Store.user && Store.user.id);
   const tops = (S.notes || []).filter(n => !n.parent_id);
   const mine = tops.filter(n => String(n.from_user_id) === myId);
@@ -1932,6 +1995,7 @@ function renderRecados() {
   const replyCard = r => `<div class="note reply">
       <div class="note-head"><b>↩️ ${esc(r.from_name || '❤️')}</b><span>${esc(fmtDT(r.created_at))}</span></div>
       <div class="note-msg">${esc(r.message)}</div>
+      ${mediaHTML(r)}
       ${reactionsRow(r)}
       ${actionsRow(r, false)}
       ${reactPicker(r)}
@@ -1942,6 +2006,7 @@ function renderRecados() {
     return `<div class="note ${canDel ? 'sent' : 'got'}">
       <div class="note-head"><b>💌 ${esc(n.from_name || '❤️')}</b><span>${esc(fmtDT(n.created_at))}</span></div>
       <div class="note-msg">${esc(n.message)}</div>
+      ${mediaHTML(n)}
       ${reactionsRow(n)}
       ${actionsRow(n, true)}
       ${reactPicker(n)}
@@ -1963,6 +2028,18 @@ function renderRecados() {
       <label class="lbl">Mensagem</label>
       <textarea id="note-msg" rows="3" maxlength="500" placeholder="Escreve algo fofo pra motivar... 🥰"></textarea>
       <div class="chips">${NOTE_IDEAS.map(t => `<button class="chip" data-idea="${esc(t)}">${esc(t)}</button>`).join('')}</div>
+      <div class="note-attach">
+        <button class="chip" id="note-photo">📷 Foto</button>
+        <button class="chip" id="note-video">🎥 Vídeo</button>
+        <button class="chip" id="note-videonote">⏺️ Vídeo-note</button>
+        <input type="file" id="note-file-photo" accept="image/*" class="hidden">
+        <input type="file" id="note-file-video" accept="video/*" class="hidden">
+      </div>
+      <div id="note-preview" class="note-preview hidden"></div>
+      <div id="note-rec" class="note-rec hidden">
+        <video id="note-rec-view" autoplay muted playsinline class="note-media"></video>
+        <div class="note-rec-bar"><button class="btn small" id="note-rec-stop">⏹️ Parar</button><span class="sub" id="note-rec-timer">0s</span></div>
+      </div>
       <button class="btn primary" id="note-send">Enviar recado 💌</button>
     </div>
     ${received.length ? `<h3 class="sec-t">Recebidos (${received.length})</h3>` + received.map(noteCard).join('') : ''}
@@ -1974,12 +2051,72 @@ function renderRecados() {
   }));
   $('#note-send').addEventListener('click', async () => {
     const to = $('#note-to').value, msg = $('#note-msg').value;
+    const btn = $('#note-send');
     try {
-      await Store.saveNote(to, msg);
+      btn.disabled = true; btn.textContent = 'Enviando... 💌';
+      let media = null;
+      if (_noteMedia) {
+        btn.textContent = 'Subindo mídia... ⏫';
+        media = await Store.uploadRecadoMedia(_noteMedia.blob, _noteMedia.type);
+      }
+      await Store.saveNote(to, msg, null, media);
+      _noteMedia = null;
       S.notes = await Store.getNotes();
       renderRecados(); renderHoje();
       toast('Recadinho enviado! 💌');
     } catch (e) { toast(e.message || 'Não deu pra enviar 😕'); }
+    finally { btn.disabled = false; btn.textContent = 'Enviar recado 💌'; }
+  });
+  // anexos do recado: foto, vídeo, vídeo-note
+  _noteMedia = null;
+  const nprev = $('#note-preview');
+  const notePreviewShow = () => {
+    if (!_noteMedia) { nprev.classList.add('hidden'); nprev.innerHTML = ''; return; }
+    nprev.classList.remove('hidden');
+    const url = URL.createObjectURL(_noteMedia.blob);
+    nprev.innerHTML = (_noteMedia.type === 'photo'
+      ? `<img src="${url}" class="note-media" alt="prévia">`
+      : `<video src="${url}" class="note-media" controls playsinline></video>`)
+      + `<button class="btn small" id="note-media-x">✖ remover</button>`;
+    $('#note-media-x').addEventListener('click', () => { _noteMedia = null; notePreviewShow(); });
+  };
+  const pickFile = (input, type) => {
+    const f = input.files && input.files[0];
+    input.value = '';
+    if (!f) return;
+    if (f.size > 25 * 1024 * 1024) { toast('Arquivo muito grande (máx 25MB) 😕'); return; }
+    _noteMedia = { blob: f, type }; notePreviewShow();
+  };
+  $('#note-photo').addEventListener('click', () => $('#note-file-photo').click());
+  $('#note-video').addEventListener('click', () => $('#note-file-video').click());
+  $('#note-file-photo').addEventListener('change', e => pickFile(e.target, 'photo'));
+  $('#note-file-video').addEventListener('change', e => pickFile(e.target, 'video'));
+  let _recStream = null, _recorder = null, _recChunks = [], _recTimer = null;
+  const noteRecStop = () => {
+    if (_recTimer) { clearInterval(_recTimer); _recTimer = null; }
+    if (_recorder && _recorder.state !== 'inactive') { try { _recorder.stop(); } catch (e) {} }
+  };
+  $('#note-rec-stop').addEventListener('click', noteRecStop);
+  $('#note-videonote').addEventListener('click', async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { toast('Este aparelho não suporta gravação 😕'); return; }
+    try {
+      _recStream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
+      $('#note-rec-view').srcObject = _recStream;
+      $('#note-rec').classList.remove('hidden');
+      _recChunks = [];
+      _recorder = new MediaRecorder(_recStream);
+      _recorder.ondataavailable = e => { if (e.data && e.data.size) _recChunks.push(e.data); };
+      _recorder.onstop = () => {
+        const blob = new Blob(_recChunks, { type: (_recorder && _recorder.mimeType) || 'video/webm' });
+        _noteMedia = { blob, type: 'video' }; notePreviewShow();
+        if (_recStream) { _recStream.getTracks().forEach(t => t.stop()); _recStream = null; }
+        $('#note-rec').classList.add('hidden');
+      };
+      _recorder.start();
+      let s = 0;
+      $('#note-rec-timer').textContent = '0s';
+      _recTimer = setInterval(() => { s++; const el = $('#note-rec-timer'); if (el) el.textContent = s + 's'; if (s >= 30) noteRecStop(); }, 1000);
+    } catch (e) { toast('Não consegui acessar a câmera 😕'); }
   });
   $$('#recados-content [data-reply-toggle]').forEach(b => b.addEventListener('click', () => {
     $('#rf-' + b.dataset.replyToggle).classList.toggle('hidden');
@@ -2016,10 +2153,8 @@ function renderRecados() {
     S.notes = await Store.getNotes(); S.reactions = await Store.getReactions();
     renderRecados(); renderHoje();
   }));
-  // alternador Recados | Coach
-  $$('#recados-content [data-rm]').forEach(b => b.addEventListener('click', () => {
-    S.recMode = b.dataset.rm; renderRecados();
-  }));
+  // alternador Recados | Mural | Coach
+  wireRecSeg();
   const pe = $('#push-enable');
   if (pe) pe.addEventListener('click', async () => {    pe.disabled = true; pe.textContent = 'Ativando... 🔔';
     try {
@@ -2031,6 +2166,7 @@ function renderRecados() {
       toast(e.message || 'Não deu pra ativar 😕');
     }
   });
+  hydrateMedia($('#recados-content'));
 }
 // banner do ultimo recado recebido no topo do Hoje
 function noteBanner() {

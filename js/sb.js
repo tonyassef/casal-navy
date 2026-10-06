@@ -92,6 +92,36 @@ const SB = {
   },
   sel(table, query) { return this._rest('GET', table, query); },
   ins(table, row) { return this._rest('POST', table, '', row); },
+  // ---------- Storage: mídia dos recados (bucket privado recado-media) ----------
+  async storageUpload(path, blob, contentType) {
+    const r = await fetch(this.url + '/storage/v1/object/recado-media/' + path, {
+      method: 'POST',
+      headers: {
+        'apikey': this.key,
+        'Authorization': 'Bearer ' + this.token,
+        'Content-Type': contentType || (blob && blob.type) || 'application/octet-stream',
+      },
+      body: blob,
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(data.message || data.error || ('HTTP ' + r.status));
+    return data;
+  },
+  async storageDownload(path) {
+    const r = await fetch(this.url + '/storage/v1/object/recado-media/' + path, {
+      headers: { 'apikey': this.key, 'Authorization': 'Bearer ' + this.token },
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return await r.blob();
+  },
+  async storageRemove(path) {
+    const r = await fetch(this.url + '/storage/v1/object/recado-media/' + path, {
+      method: 'DELETE',
+      headers: { 'apikey': this.key, 'Authorization': 'Bearer ' + this.token },
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return true;
+  },
   upsert(table, row, onConflict) {
     return this._rest('POST', table, '?on_conflict=' + encodeURIComponent(onConflict), row,
       'return=representation,resolution=merge-duplicates');

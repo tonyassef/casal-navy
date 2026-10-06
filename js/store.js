@@ -673,7 +673,7 @@ const Store = {
     }
     return this._ls('notes.' + this.user.id) || [];
   },
-  async saveNote(toName, message, parentId) {
+  async saveNote(toName, message, parentId, media) {
     toName = (toName || '').trim(); message = (message || '').trim();
     if (!toName || !message) throw new Error('Escreva para quem é e a mensagem. 💌');
     if (this.mode === 'cloud') {
@@ -681,6 +681,8 @@ const Store = {
         from_user_id: this.user.id, from_name: this.user.name,
         to_name: toName, message: message.slice(0, 500),
         parent_id: parentId || null,
+        media_path: (media && media.path) || '',
+        media_type: (media && media.type) || '',
       });
       if (rows && rows[0]) this._firePush('couple_notes', rows[0]);
       return rows && rows[0];
@@ -701,6 +703,19 @@ const Store = {
     (this._ls(k) || []).forEach(x => { if (x.parent_id && kill.has(x.parent_id)) kill.add(x.id); });
     this._ls(k, (this._ls(k) || []).filter(x => !kill.has(x.id)));
     this._ls('reactions.' + this.user.id, (this._ls('reactions.' + this.user.id) || []).filter(r => !kill.has(r.note_id)));
+  },
+
+  // ---------- mídia dos recados (foto / vídeo / vídeo-note) ----------
+  // Sobe o arquivo pro bucket privado e devolve {path, type}.
+  // type: 'photo' | 'video'
+  async uploadRecadoMedia(blob, type) {
+    if (this.mode !== 'cloud' || !SB.token) throw new Error('Ative a nuvem para enviar mídia. ☁️');
+    const ext = type === 'photo'
+      ? ((blob.type || '').includes('png') ? 'png' : 'jpg')
+      : ((blob.type || '').includes('mp4') ? 'mp4' : 'webm');
+    const path = this.user.id + '/' + this.uid() + '.' + ext;
+    await SB.storageUpload(path, blob, blob.type);
+    return { path, type };
   },
 
   // ---------- curtidas com emoji nos recados ----------
