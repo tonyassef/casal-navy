@@ -104,26 +104,44 @@ serve(async (req) => {
     }
 
     // ---------- recadinhos: novo recado ou resposta ----------
+    // Roteamento pelo pareamento (couple_pairs): o push vai para o par de quem
+    // enviou — não depende mais do apelido digitado no "Para quem".
+    // Fallback: match tolerante pelo nome (ex.: "Eliza" encontra "Elizama").
+    const fromId = String(rec.from_user_id || "");
     const toName = String(rec.to_name || "").trim();
     const fromName = String(rec.from_name || "").trim() || "Seu amor";
     const message = String(rec.message || "").trim().slice(0, 140);
-    if (!toName || !message) return json({ skipped: "empty" });
+    if (!message) return json({ skipped: "empty" });
 
-    // Localiza o destinatario de forma tolerante (ex.: "Eliza" encontra "Elizama")
-    const { data: profiles, error: pErr } = await supabase.from("profiles").select("id,name");
-    if (pErr) throw pErr;
-    const tn = toName.toLowerCase();
-    const targets = (profiles || []).filter((p: { name?: string }) => {
-      const n = String(p.name || "").toLowerCase().trim();
-      return n !== "" && (n === tn || n.startsWith(tn) || tn.startsWith(n));
-    });
-    if (!targets.length) return json({ skipped: "no-recipient", toName });
+    const targetIds = new Set<string>();
+    if (fromId) {
+      const { data: pairs, error: pairErr } = await supabase
+        .from("couple_pairs")
+        .select("partner_id")
+        .eq("user_id", fromId);
+      if (pairErr) throw pairErr;
+      (pairs || []).forEach((p: { partner_id: string }) => {
+        if (p.partner_id && p.partner_id !== fromId) targetIds.add(p.partner_id);
+      });
+    }
+    if (!targetIds.size && toName) {
+      const { data: profiles, error: pErr } = await supabase.from("profiles").select("id,name");
+      if (pErr) throw pErr;
+      const tn = toName.toLowerCase();
+      (profiles || []).forEach((p: { id: string; name?: string }) => {
+        const n = String(p.name || "").toLowerCase().trim();
+        if (n && p.id !== fromId && (n === tn || n.startsWith(tn) || tn.startsWith(n))) {
+          targetIds.add(p.id);
+        }
+      });
+    }
+    if (!targetIds.size) return json({ skipped: "no-recipient", toName });
 
     const isReply = !!rec.parent_id;
     const title = isReply ? `↩️ ${fromName} respondeu seu recado` : `💌 Recado de ${fromName}`;
     const r = await pushToUserIds(
       supabase,
-      targets.map((t: { id: string }) => t.id),
+      [...targetIds],
       title,
       message,
     );
