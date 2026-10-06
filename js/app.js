@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v51'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v52'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -600,7 +600,11 @@ function startRestTimer(secs, label) {
 function restTick() {
   if (!restTimer) return;
   if (restLeft() <= 0) {
-    stopRestTimer(); beep();
+    const wasPip = pipOn;
+    if (wasPip) drawPip(true);
+    stopRestTimer(wasPip); // mantém a janela flutuante com "BORA!" por alguns segundos
+    if (wasPip) setTimeout(unfloatTimer, 6000);
+    beep();
     try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) {}
     toast('Descanso terminado! Bora 💪🔥');
     return;
@@ -613,12 +617,14 @@ function paintRest() {
   const t = $('#rest-time'); if (t) t.textContent = fmtT(left);
   const lb = $('#rest-label'); if (lb) lb.textContent = '⏱ ' + r.label;
   const fg = $('#rest-fg'); if (fg) fg.style.width = (100 * left / r.total) + '%';
+  if (pipOn) drawPip(false);
 }
-function stopRestTimer() {
+function stopRestTimer(keepPip) {
   if (restTimer && restTimer.int) clearInterval(restTimer.int);
   restTimer = null;
   persistRest();
   const bar = $('#restbar'); if (bar) bar.classList.add('hidden');
+  if (!keepPip) unfloatTimer();
 }
 // se o app foi minimizado/fechado no meio do descanso, restaura o timer ao voltar
 function resumeRestTimer() {
@@ -635,6 +641,84 @@ function resumeRestTimer() {
     restTimer.int = setInterval(restTick, 250);
   } catch (e) {}
 }
+/* ---------- timer flutuante fora do app (Picture-in-Picture) ---------- */
+// Janelinha sempre visível por cima de outros apps (WhatsApp etc.).
+// Funciona no Android (Chrome) e no iPhone (Safari).
+let pipVideo = null, pipCanvas = null, pipCtx = null, pipOn = false;
+
+function pipEnsure() {
+  if (pipCanvas) return true;
+  try {
+    pipCanvas = document.createElement('canvas');
+    pipCanvas.width = 480; pipCanvas.height = 270;
+    pipCtx = pipCanvas.getContext('2d');
+    pipVideo = document.createElement('video');
+    pipVideo.muted = true;
+    pipVideo.playsInline = true;
+    pipVideo.style.display = 'none';
+    pipVideo.setAttribute('playsinline', '');
+    document.body.appendChild(pipVideo);
+    pipVideo.addEventListener('leavepictureinpicture', () => { pipOn = false; });
+    return true;
+  } catch (e) { return false; }
+}
+
+function drawPip(done) {
+  if (!pipCtx) return;
+  const W = 480, H = 270;
+  const r = restTimer;
+  const left = r ? restLeft() : 0;
+  const total = (r && r.total) || 1;
+  const g = pipCtx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#16283c'); g.addColorStop(1, '#0b1524');
+  pipCtx.fillStyle = g; pipCtx.fillRect(0, 0, W, H);
+  pipCtx.textAlign = 'center';
+  pipCtx.fillStyle = '#8aa2b8';
+  pipCtx.font = '600 28px system-ui, sans-serif';
+  const label = done ? 'DESCANSO TERMINADO' : ('⏱ ' + (r ? r.label : 'Descanso')).toUpperCase().slice(0, 28);
+  pipCtx.fillText(label, W / 2, 54);
+  pipCtx.fillStyle = done ? '#4ade80' : '#ffffff';
+  pipCtx.font = '800 116px system-ui, sans-serif';
+  pipCtx.fillText(done ? 'BORA!' : fmtT(left), W / 2, 178);
+  pipCtx.fillStyle = '#223448';
+  pipCtx.fillRect(40, 222, W - 80, 18);
+  pipCtx.fillStyle = done ? '#4ade80' : '#1b7cbb';
+  pipCtx.fillRect(40, 222, (W - 80) * (done ? 1 : left / total), 18);
+}
+
+async function floatTimer(quiet) {
+  if (pipOn) { unfloatTimer(); return; }
+  if (!restTimer) { if (!quiet) toast('Inicia um descanso primeiro ⏱'); return; }
+  if (!pipEnsure()) { if (!quiet) toast('Não deu pra flutuar 😕'); return; }
+  try {
+    drawPip(false);
+    pipVideo.srcObject = pipCanvas.captureStream(30);
+    await pipVideo.play();
+    if (pipVideo.requestPictureInPicture) await pipVideo.requestPictureInPicture();
+    else if (pipVideo.webkitSetPresentationMode) pipVideo.webkitSetPresentationMode('picture-in-picture');
+    else throw new Error('sem PiP');
+    pipOn = true;
+    if (!quiet) toast('Timer flutuando 🪟 — pode minimizar o app');
+  } catch (e) {
+    pipOn = false;
+    if (!quiet) toast('Seu aparelho não suporta janela flutuante 😕');
+  }
+}
+
+async function unfloatTimer() {
+  try {
+    if (document.pictureInPictureElement) await document.exitPictureInPicture();
+    else if (pipVideo && pipVideo.webkitSetPresentationMode) pipVideo.webkitSetPresentationMode('inline');
+  } catch (e) {}
+  pipOn = false;
+  if (pipVideo) { try { pipVideo.srcObject = null; } catch (e) {} }
+}
+
+// tenta flutuar sozinho ao minimizar o app durante o descanso
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && restTimer && !pipOn) { try { floatTimer(true); } catch (e) {} }
+});
+
 /* pílula arrastável: dá pra mover o timer pra qualquer canto da tela */
 function initRestDrag() {
   const bar = $('#restbar'), pill = $('#rest-pill');
@@ -2562,5 +2646,6 @@ document.addEventListener('click', e => {
   if (e.target && e.target.id === 'rest-plus' && restTimer) {
     restTimer.endAt += 30000; restTimer.total += 30; persistRest(); paintRest();
   }
+  if (e.target && e.target.id === 'rest-float') floatTimer();
   if (e.target && e.target.id === 'rest-stop') stopRestTimer();
 });
