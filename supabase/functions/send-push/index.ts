@@ -95,10 +95,11 @@ serve(async (req) => {
         .map((p: { partner_id: string }) => p.partner_id)
         .filter((id: string) => id && id !== fromId);
       if (!targets.length) return json({ skipped: "no-recipient" });
+      const cName = /undefined/i.test(fromName) ? "Seu amor" : fromName;
       const title = isOut ? "🏁 Check-out da academia" : "💪 Check-in na academia";
       const body = isOut
-        ? `${fromName} saiu da academia! Treino pago? 💪😌`
-        : `${fromName} chegou na academia! Bora treinar 🔥`;
+        ? `${cName} saiu da academia! Treino pago? 💪😌`
+        : `${cName} chegou na academia! Bora treinar 🔥`;
       const r = await pushToUserIds(supabase, targets, title, body);
       return json({ kind: isOut ? "checkout" : "checkin", ...r });
     }
@@ -138,12 +139,17 @@ serve(async (req) => {
     if (!targetIds.size) return json({ skipped: "no-recipient", toName });
 
     const isReply = !!rec.parent_id;
-    const title = isReply ? `↩️ ${fromName} respondeu seu recado` : `💌 Recado de ${fromName}`;
+    const clean = (s: string, fb: string) => {
+      const t = String(s || "").trim();
+      return (!t || /undefined/i.test(t)) ? fb : t;
+    };
+    const title = clean(isReply ? `↩️ ${fromName} respondeu seu recado` : `💌 Recado de ${fromName}`, "💌 Novo recadinho");
+    const body = clean(message, "Abre o app pra ver 💕");
     const r = await pushToUserIds(
       supabase,
       [...targetIds],
       title,
-      message,
+      body,
     );
     return json({ kind: isReply ? "reply" : "note", ...r });
   } catch (e) {

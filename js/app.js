@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v50'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v51'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -1108,8 +1108,8 @@ async function makeComicVideo() {
     const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
     const ctx = cv.getContext('2d');
     const stream = cv.captureStream(30);
-    const mime = (window.MediaRecorder && MediaRecorder.isTypeSupported('video/webm;codecs=vp9')) ? 'video/webm;codecs=vp9' : 'video/webm';
-    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 4000000 });
+    const qmime = getVideoMime();
+    const rec = qmime ? new MediaRecorder(stream, { mimeType: qmime, videoBitsPerSecond: 4000000 }) : new MediaRecorder(stream);
     const chunks = [];
     rec.ondataavailable = e => { if (e.data && e.data.size) chunks.push(e.data); };
     const done = new Promise(res => { rec.onstop = res; });
@@ -1122,9 +1122,11 @@ async function makeComicVideo() {
     }
     await playCard(ctx, W, H, 'SEMANA', 'PAGA! 🔥', 'Feito no Casal Navy 🏋️');
     rec.stop(); await done;
-    const blob = new Blob(chunks, { type: 'video/webm' });
+    const qtype = (qmime || '').split(';')[0] || 'video/mp4';
+    const qext = qtype.includes('mp4') ? 'mp4' : 'webm';
+    const blob = new Blob(chunks, { type: qtype });
     if (!blob.size) { toast('Falha ao gerar o vídeo 😕'); return; }
-    await dlFile(new File([blob], 'quadrinhos-da-semana.webm', { type: 'video/webm' }));
+    await dlFile(new File([blob], 'quadrinhos-da-semana.' + qext, { type: qtype }));
     savedToast('Vídeo pronto! 🎬');
   } catch (e) { toast('Não deu pra gerar o vídeo 😕'); }
 }
@@ -1780,6 +1782,22 @@ $('#btn-plan-edit').addEventListener('click', () => { S.editPlan = !S.editPlan; 
 // _noteMedia guarda o anexo aguardando envio no formulário.
 const _mediaURLs = new Map();
 let _noteMedia = null;
+let _sendingNote = false; // trava anti-duplicidade no envio de recados
+// escolhe um mimeType de vídeo que o aparelho suporta (mp4 primeiro: roda no iPhone e no Android)
+function pickVideoMime() {
+  const cands = ['video/mp4', 'video/webm;codecs=vp9', 'video/webm'];
+  try {
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported) {
+      for (const c of cands) if (MediaRecorder.isTypeSupported(c)) return c;
+    }
+  } catch (e) {}
+  return '';
+}
+const _videoMime = { v: null };
+function getVideoMime() {
+  if (_videoMime.v === null) _videoMime.v = pickVideoMime();
+  return _videoMime.v;
+}
 
 function wireRecSeg() {
   $$('#recados-content [data-rm]').forEach(b => b.addEventListener('click', () => {
@@ -1790,24 +1808,43 @@ function wireRecSeg() {
 async function mediaURL(path) {
   if (!path) return '';
   if (_mediaURLs.has(path)) return _mediaURLs.get(path);
-  try {
-    const blob = await SB.storageDownload(path);
-    const url = URL.createObjectURL(blob);
-    _mediaURLs.set(path, url);
-    return url;
-  } catch (e) { return ''; }
+  const blob = await SB.storageDownload(path);
+  if (!blob || !blob.size) throw new Error('arquivo vazio');
+  const url = URL.createObjectURL(blob);
+  _mediaURLs.set(path, url);
+  return url;
 }
 
-// preenche <img data-mpath> e <video data-mpath> com a URL autenticada
+// preenche <img data-mpath> e <video data-mpath> com a URL autenticada;
+// se falhar, mostra botão de tentar de novo com o motivo
 async function hydrateMedia(root) {
   const els = (root || document).querySelectorAll('[data-mpath]');
   for (const el of els) {
     const p = el.getAttribute('data-mpath');
     if (!p || el.dataset.done) continue;
     el.dataset.done = '1';
-    const url = await mediaURL(p);
-    if (!url) { el.style.display = 'none'; continue; }
-    el.src = url;
+    try {
+      el.src = await mediaURL(p);
+    } catch (e) {
+      const msg = (e && e.message) || 'falha ao carregar';
+      const b = document.createElement('button');
+      b.className = 'btn small';
+      b.style.marginTop = '8px';
+      b.textContent = '⚠️ Mídia indisponível (' + msg + ') — tocar p/ tentar de novo';
+      b.addEventListener('click', async () => {
+        b.disabled = true; b.textContent = 'Tentando... ⏳';
+        try {
+          _mediaURLs.delete(p);
+          el.src = await mediaURL(p);
+          el.style.display = ''; b.remove();
+        } catch (e2) {
+          b.disabled = false;
+          b.textContent = '⚠️ Mídia indisponível (' + ((e2 && e2.message) || 'falha') + ') — tocar p/ tentar de novo';
+        }
+      });
+      el.style.display = 'none';
+      el.parentNode.insertBefore(b, el.nextSibling);
+    }
   }
 }
 
@@ -2050,8 +2087,10 @@ function renderRecados() {
     const ta = $('#note-msg'); ta.value = c.dataset.idea; ta.focus();
   }));
   $('#note-send').addEventListener('click', async () => {
+    if (_sendingNote) return; // trava anti-duplicidade (toque duplo)
     const to = $('#note-to').value, msg = $('#note-msg').value;
     const btn = $('#note-send');
+    _sendingNote = true;
     try {
       btn.disabled = true; btn.textContent = 'Enviando... 💌';
       let media = null;
@@ -2065,7 +2104,7 @@ function renderRecados() {
       renderRecados(); renderHoje();
       toast('Recadinho enviado! 💌');
     } catch (e) { toast(e.message || 'Não deu pra enviar 😕'); }
-    finally { btn.disabled = false; btn.textContent = 'Enviar recado 💌'; }
+    finally { _sendingNote = false; btn.disabled = false; btn.textContent = 'Enviar recado 💌'; }
   });
   // anexos do recado: foto, vídeo, vídeo-note
   _noteMedia = null;
@@ -2104,11 +2143,13 @@ function renderRecados() {
       $('#note-rec-view').srcObject = _recStream;
       $('#note-rec').classList.remove('hidden');
       _recChunks = [];
-      _recorder = new MediaRecorder(_recStream);
+      const vmime = getVideoMime();
+      _recorder = vmime ? new MediaRecorder(_recStream, { mimeType: vmime }) : new MediaRecorder(_recStream);
       _recorder.ondataavailable = e => { if (e.data && e.data.size) _recChunks.push(e.data); };
       _recorder.onstop = () => {
-        const blob = new Blob(_recChunks, { type: (_recorder && _recorder.mimeType) || 'video/webm' });
-        _noteMedia = { blob, type: 'video' }; notePreviewShow();
+        const blob = new Blob(_recChunks, { type: (vmime || '').split(';')[0] || 'video/mp4' });
+        if (!blob.size) { toast('Gravação vazia, tenta de novo 😕'); }
+        else { _noteMedia = { blob, type: 'video' }; notePreviewShow(); }
         if (_recStream) { _recStream.getTracks().forEach(t => t.stop()); _recStream = null; }
         $('#note-rec').classList.add('hidden');
       };

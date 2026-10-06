@@ -1,5 +1,5 @@
 /* Casal Navy — service worker: app shell offline-first */
-const CACHE = 'casal-navy-v50';
+const CACHE = 'casal-navy-v51';
 const ASSETS = [
   '.', 'index.html', 'manifest.json',
   'css/style.css',
@@ -32,9 +32,13 @@ self.addEventListener('fetch', e => {
 self.addEventListener('push', e => {
   let d = {};
   try { d = e.data ? e.data.json() : {}; } catch (_) {}
-  const title = d.title || '💌 Novo recadinho';
+  const clean = (v, fb) => {
+    const t = String(v == null ? '' : v).trim();
+    return (!t || /undefined/i.test(t)) ? fb : t;
+  };
+  const title = clean(d.title, '💌 Novo recadinho');
   e.waitUntil(self.registration.showNotification(title, {
-    body: d.body || 'Abre o app pra ver 💕',
+    body: clean(d.body, 'Abre o app pra ver 💕'),
     icon: 'icons/icon-192.png',
     badge: 'icons/icon-192.png',
     tag: 'casal-recado',
