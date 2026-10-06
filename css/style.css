@@ -259,3 +259,15 @@ canvas.chart{width:100%;height:220px;background:var(--surface);border:1px solid 
 .album-hero .sub{color:#cfe7fa;font-size:13px;margin-bottom:10px;}
 .mini-thumbs{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;}
 .mini-thumbs img{width:64px;height:64px;object-fit:cover;border-radius:8px;border:1px solid var(--line);}
+
+/* v48: coach chat */
+.coach-msgs{max-height:46vh;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding:6px 2px;margin:8px 0;}
+.cmsg{max-width:85%;padding:10px 13px;border-radius:14px;font-size:14px;line-height:1.4;white-space:pre-wrap;word-break:break-word;}
+.cmsg.user{align-self:flex-end;background:#1b7cbb;color:#fff;border-bottom-right-radius:4px;}
+.cmsg.assistant{align-self:flex-start;background:var(--card2);border:1px solid var(--line);border-bottom-left-radius:4px;}
+.cmsg.typing span{display:inline-block;width:7px;height:7px;border-radius:50%;background:#8aa2b8;margin-right:4px;animation:ctyp 1s infinite;}
+.cmsg.typing span:nth-child(2){animation-delay:.15s}.cmsg.typing span:nth-child(3){animation-delay:.3s}
+@keyframes ctyp{0%,100%{opacity:.3}50%{opacity:1}}
+.coach-input{display:flex;gap:8px;align-items:center;}
+.coach-input input{flex:1;}
+.coach-input .btn{flex:0 0 52px;}

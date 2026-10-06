@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v47'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v48'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -1794,7 +1794,111 @@ function pushCard() {
   </div>`;
 }
 const REACT_EMOJIS = ['❤️', '😂', '🔥', '💪', '😮', '👏', '🥰'];
+/* ================= COACH JARVIS 💬 ================= */
+// Chat em tempo real com o coach (via Edge Function coach-chat).
+// O histórico fica neste aparelho, separado por usuário.
+function coachKey() { return 'coachchat.' + (Store.user && Store.user.id); }
+function coachHist() { try { return JSON.parse(localStorage.getItem(coachKey()) || '[]'); } catch (e) { return []; } }
+function coachSave(h) { try { localStorage.setItem(coachKey(), JSON.stringify(h.slice(-40))); } catch (e) {} }
+
+function renderCoach(seg) {
+  $('#recados-content').innerHTML = seg + `<div class="card"><h3>💬 Coach Jarvis</h3>
+    <div class="sub">Dúvidas do treino? Pergunte — técnicas, exercícios, sequência. E se quiser <b>trocar um exercício do plano</b>, é só pedir que eu já altero. 💪</div>
+    <div id="coach-msgs" class="coach-msgs"></div>
+    <div class="coach-input"><input id="coach-in" placeholder="Pergunte qualquer coisa..." maxlength="500" autocomplete="off">
+    <button class="btn primary" id="coach-send">➤</button></div>
+  </div>`;
+  $$('#recados-content [data-rm]').forEach(b => b.addEventListener('click', () => {
+    S.recMode = b.dataset.rm; renderRecados();
+  }));
+  paintCoachMsgs(false);
+  const send = () => coachSend();
+  $('#coach-send').addEventListener('click', send);
+  $('#coach-in').addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+}
+
+function paintCoachMsgs(typing) {
+  const box = $('#coach-msgs'); if (!box) return;
+  const hist = coachHist();
+  if (!hist.length && !typing) {
+    box.innerHTML = `<div class="sub" style="text-align:center;padding:18px 0">Ex: "o que é rest-pause?"<br>ou "troca o exercício X do dia F por Y" 💪</div>`;
+    return;
+  }
+  box.innerHTML = hist.map(m => `<div class="cmsg ${m.role === 'assistant' ? 'assistant' : 'user'}">${esc(m.text)}</div>`).join('')
+    + (typing ? `<div class="cmsg assistant typing"><span></span><span></span><span></span></div>` : '');
+  box.scrollTop = box.scrollHeight;
+}
+
+async function coachSend() {
+  const inp = $('#coach-in'); const txt = ((inp && inp.value) || '').trim();
+  if (!txt) return;
+  inp.value = '';
+  const hist = coachHist();
+  hist.push({ role: 'user', text: txt, at: Date.now() });
+  coachSave(hist); paintCoachMsgs(true);
+  try {
+    const res = await coachAsk(txt, hist.slice(-12));
+    hist.push({ role: 'assistant', text: res.reply, at: Date.now() });
+    coachSave(hist); paintCoachMsgs(false);
+    if (res.action) coachApplyAction(res.action);
+  } catch (e) {
+    hist.push({ role: 'assistant', text: '⚠️ ' + (e.message || 'Não consegui responder agora. Tenta de novo?'), at: Date.now() });
+    coachSave(hist); paintCoachMsgs(false);
+  }
+}
+
+async function coachAsk(txt, hist) {
+  if (Store.mode !== 'cloud' || !SB.token) throw new Error('O coach precisa da nuvem ativada. ☁️');
+  const d = S.plan.days[S.todayIdx] || { exercises: [] };
+  const plan = {
+    today: dayLabel(d),
+    days: (S.plan.days || []).map(x => dayLabel(x)),
+    exercises: (d.exercises || []).map(ex => ({ a: ex.nameA, b: ex.nameB, sets: ex.sets, reps: ex.reps, technique: ex.technique })),
+  };
+  const base = String((Store.cfg && Store.cfg.url) || '').replace(/\/+$/, '');
+  const r = await fetch(base + '/functions/v1/coach-chat', {
+    method: 'POST',
+    headers: { 'apikey': Store.cfg.key, 'Authorization': 'Bearer ' + SB.token, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message: txt, history: hist, plan, userName: Store.user.name }),
+  });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(data.error || ('HTTP ' + r.status));
+  return data;
+}
+
+// executa a ação pedida ao coach (ex.: trocar exercício do plano)
+async function coachApplyAction(a) {
+  try {
+    if (!a || a.type !== 'swap_exercise' || !a.to) return;
+    const days = S.plan.days || [];
+    const nk = s => normName(s || '');
+    const dk = nk(a.day);
+    let di = days.findIndex(x => nk(dayLabel(x)) === dk);
+    if (di < 0 && dk) di = days.findIndex(x => nk(dayLabel(x)).indexOf(dk) >= 0);
+    if (di < 0) { toast('Não achei o dia "' + (a.day || '') + '" no plano. 🤔'); return; }
+    const fk = nk(a.from);
+    const exs = days[di].exercises || [];
+    const ei = exs.findIndex(ex => {
+      const na = nk(ex.nameA), nb = nk(ex.nameB);
+      return (fk && (na === fk || nb === fk || na.indexOf(fk) >= 0 || nb.indexOf(fk) >= 0 || fk.indexOf(na) >= 0));
+    });
+    if (ei < 0) { toast('Não achei "' + (a.from || '') + '" no ' + dayLabel(days[di]) + '. 🤔'); return; }
+    const ex = exs[ei];
+    const na = nk(ex.nameA);
+    const matchedA = fk && (na === fk || na.indexOf(fk) >= 0 || fk.indexOf(na) >= 0);
+    const oldName = matchedA ? ex.nameA : ex.nameB;
+    if (matchedA) ex.nameA = a.to; else ex.nameB = a.to;
+    await Store.savePlan(S.plan);
+    renderHoje(); renderPlano();
+    savedToast('✅ Troquei "' + (oldName || a.from) + '" por "' + a.to + '" no ' + dayLabel(days[di]) + '.');
+  } catch (e) { toast('Não consegui alterar o plano 😕'); }
+}
+
+/* ================= RECADOS ================= */
 function renderRecados() {
+  const rmode = S.recMode || 'recados';
+  const seg = `<div class="seg"><button data-rm="recados" class="${rmode === 'recados' ? 'active' : ''}">💌 Recados</button><button data-rm="coach" class="${rmode === 'coach' ? 'active' : ''}">💬 Coach</button></div>`;
+  if (rmode === 'coach') { renderCoach(seg); return; }
   const myId = String(Store.user && Store.user.id);
   const tops = (S.notes || []).filter(n => !n.parent_id);
   const mine = tops.filter(n => String(n.from_user_id) === myId);
@@ -1849,6 +1953,7 @@ function renderRecados() {
     </div>`;
   };
   $('#recados-content').innerHTML = `
+    ${seg}
     ${pushCard()}
     <div class="card note-form">
       <h3>Escrever recadinho 💕</h3>
@@ -1911,9 +2016,12 @@ function renderRecados() {
     S.notes = await Store.getNotes(); S.reactions = await Store.getReactions();
     renderRecados(); renderHoje();
   }));
+  // alternador Recados | Coach
+  $$('#recados-content [data-rm]').forEach(b => b.addEventListener('click', () => {
+    S.recMode = b.dataset.rm; renderRecados();
+  }));
   const pe = $('#push-enable');
-  if (pe) pe.addEventListener('click', async () => {
-    pe.disabled = true; pe.textContent = 'Ativando... 🔔';
+  if (pe) pe.addEventListener('click', async () => {    pe.disabled = true; pe.textContent = 'Ativando... 🔔';
     try {
       await Store.enablePush();
       renderRecados();
