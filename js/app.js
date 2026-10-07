@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v54'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v55'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -597,13 +597,17 @@ function startRestTimer(secs, label) {
   paintRest();
   restTimer.int = setInterval(restTick, 250);
   pipWarmup(); // deixa o vídeo do PiP tocando pra flutuar sozinho ao minimizar
+  lockTimerStart(); // tela de bloqueio (iPhone) + notificação de mídia (Android)
 }
 function restTick() {
   if (!restTimer) return;
   if (restLeft() <= 0) {
     const wasPip = pipOn;
     if (wasPip) drawPip(true);
+    lockTimerEnd(); // tela de bloqueio mostra BORA!
+    lockEnding = true;
     stopRestTimer(wasPip); // mantém a janela flutuante com "BORA!" por alguns segundos
+    lockEnding = false;
     if (wasPip) setTimeout(unfloatTimer, 6000);
     beep();
     try { if (navigator.vibrate) navigator.vibrate([200, 100, 200]); } catch (e) {}
@@ -619,6 +623,7 @@ function paintRest() {
   const lb = $('#rest-label'); if (lb) lb.textContent = '⏱ ' + r.label;
   const fg = $('#rest-fg'); if (fg) fg.style.width = (100 * left / r.total) + '%';
   if (pipOn) drawPip(false);
+  lockTimerPaint(); // atualiza a contagem na tela de bloqueio / mídia
 }
 function stopRestTimer(keepPip) {
   if (restTimer && restTimer.int) clearInterval(restTimer.int);
@@ -626,6 +631,7 @@ function stopRestTimer(keepPip) {
   persistRest();
   const bar = $('#restbar'); if (bar) bar.classList.add('hidden');
   if (!keepPip) unfloatTimer();
+  if (!lockEnding) lockTimerStop(); // parada manual: limpa a tela de bloqueio
 }
 // se o app foi minimizado/fechado no meio do descanso, restaura o timer ao voltar
 function resumeRestTimer() {
@@ -694,7 +700,7 @@ function pipWarmup() {
 
 // flutua agora (vídeo já está tocando — sem awaits que o background pode matar)
 function pipAuto() {
-  if (pipOn || !restTimer || !pipVideo) return;
+  if (pipOn || !restTimer || !pipVideo || isiPhone()) return; // iPhone usa a tela de bloqueio
   try {
     if (pipVideo.requestPictureInPicture) {
       const p = pipVideo.requestPictureInPicture();
@@ -729,6 +735,7 @@ function drawPip(done) {
 }
 
 async function floatTimer(quiet) {
+  if (isiPhone()) { if (!quiet) toast('No iPhone o timer aparece na tela de bloqueio 🔒'); return; }
   if (pipOn) { unfloatTimer(); return; }
   if (!restTimer) { if (!quiet) toast('Inicia um descanso primeiro ⏱'); return; }
   pipWarmup();
@@ -759,6 +766,90 @@ document.addEventListener('visibilitychange', () => {
 });
 // backup pro iPhone (pagehide dispara ao sair do app)
 window.addEventListener('pagehide', () => { pipAuto(); });
+
+/* ---------- timer na tela de bloqueio (iPhone) via Media Session ---------- */
+// O iPhone não tem janela flutuante (limitação da Apple), mas mostra o timer
+// na TELA DE BLOQUEIO: um áudio silencioso mantém o app vivo em background
+// e o Media Session atualiza a contagem regressiva na telinha de "tocando agora".
+let lockAC = null, lockSilentSrc = null, lockEnding = false, lockLastSec = -1, lockHandlers = false;
+function isiPhone() { return /iPhone|iPod/.test(navigator.userAgent || ''); }
+function lockArtwork() {
+  try { return [{ src: 'icon-512.png', sizes: '512x512', type: 'image/png' }]; } catch (e) { return []; }
+}
+function lockTimerStart() {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    if (!lockHandlers) {
+      lockHandlers = true;
+      try { navigator.mediaSession.setActionHandler('play', () => {}); } catch (e) {}
+      try { navigator.mediaSession.setActionHandler('pause', () => {}); } catch (e) {}
+    }
+    // áudio silencioso em loop: iPhone mantém a página rodando em background
+    if (isiPhone()) {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (AC && !lockAC) {
+        lockAC = new AC();
+        const buf = lockAC.createBuffer(1, lockAC.sampleRate, lockAC.sampleRate);
+        lockSilentSrc = lockAC.createBufferSource();
+        lockSilentSrc.buffer = buf; lockSilentSrc.loop = true;
+        lockSilentSrc.connect(lockAC.destination);
+        try { lockSilentSrc.start(); } catch (e) {}
+      }
+      if (lockAC && lockAC.state === 'suspended') { try { lockAC.resume(); } catch (e) {} }
+    }
+    navigator.mediaSession.playbackState = 'playing';
+    lockLastSec = -1;
+    lockTimerPaint();
+  } catch (e) {}
+}
+function lockTimerPaint() {
+  if (!('mediaSession' in navigator) || !restTimer) return;
+  try {
+    const left = restLeft();
+    if (left === lockLastSec) return;
+    lockLastSec = left;
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: '⏱ ' + fmtT(left),
+      artist: restTimer.label + ' • Casal Navy',
+      album: 'Descanso',
+      artwork: lockArtwork()
+    });
+  } catch (e) {}
+}
+function lockTimerCleanup() {
+  try { if (lockSilentSrc) lockSilentSrc.stop(); } catch (e) {}
+  lockSilentSrc = null;
+  try { if (lockAC) lockAC.close(); } catch (e) {}
+  lockAC = null;
+  try {
+    navigator.mediaSession.playbackState = 'none';
+    navigator.mediaSession.metadata = null;
+  } catch (e) {}
+  lockLastSec = -1;
+}
+function lockTimerEnd() {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: 'BORA! 💪🔥', artist: 'Descanso terminado • Casal Navy',
+      album: 'Descanso', artwork: lockArtwork()
+    });
+  } catch (e) {}
+  setTimeout(lockTimerCleanup, 8000);
+}
+function lockTimerStop() { // parada manual: limpa na hora
+  if (!('mediaSession' in navigator)) return;
+  lockTimerCleanup();
+}
+// o beep do fim do descanso usa a sessão de áudio já ativa (toca até com o app minimizado)
+function beepCtx() {
+  if (lockAC) return lockAC;
+  try {
+    if (!window._beepAC) window._beepAC = new (window.AudioContext || window.webkitAudioContext)();
+    if (window._beepAC.state === 'suspended') window._beepAC.resume();
+    return window._beepAC;
+  } catch (e) { return null; }
+}
 
 /* pílula arrastável: dá pra mover o timer pra qualquer canto da tela */
 function initRestDrag() {
@@ -798,7 +889,7 @@ function initRestDrag() {
 function fmtT(s){ return pad(Math.floor(s/60)) + ':' + pad(s%60); }
 function beep(){
   try{
-    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const ctx = beepCtx(); if (!ctx) return;
     [0,250,500].forEach(t=>{ const o=ctx.createOscillator(), g=ctx.createGain();
       o.connect(g); g.connect(ctx.destination); o.frequency.value=880;
       o.start(ctx.currentTime+t/1000); o.stop(ctx.currentTime+t/1000+0.2); });
