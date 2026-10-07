@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v55'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v56'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -596,7 +596,7 @@ function startRestTimer(secs, label) {
   bar.classList.remove('hidden');
   paintRest();
   restTimer.int = setInterval(restTick, 250);
-  pipWarmup(); // deixa o vídeo do PiP tocando pra flutuar sozinho ao minimizar
+  if (!isiPhone()) pipWarmup(); // iPhone usa a tela de bloqueio, não o PiP
   lockTimerStart(); // tela de bloqueio (iPhone) + notificação de mídia (Android)
 }
 function restTick() {
@@ -620,7 +620,7 @@ function paintRest() {
   const r = restTimer; if (!r) return;
   const left = restLeft();
   const t = $('#rest-time'); if (t) t.textContent = fmtT(left);
-  const lb = $('#rest-label'); if (lb) lb.textContent = '⏱ ' + r.label;
+  const lb = $('#rest-label'); if (lb) lb.textContent = (isiPhone() && lockOn ? '🔒 ' : '⏱ ') + r.label;
   const fg = $('#rest-fg'); if (fg) fg.style.width = (100 * left / r.total) + '%';
   if (pipOn) drawPip(false);
   lockTimerPaint(); // atualiza a contagem na tela de bloqueio / mídia
@@ -735,7 +735,7 @@ function drawPip(done) {
 }
 
 async function floatTimer(quiet) {
-  if (isiPhone()) { if (!quiet) toast('No iPhone o timer aparece na tela de bloqueio 🔒'); return; }
+  if (isiPhone()) { if (!quiet) toast('No iPhone o timer vai pra tela de bloqueio 🔒 — é só bloquear a tela'); return; }
   if (pipOn) { unfloatTimer(); return; }
   if (!restTimer) { if (!quiet) toast('Inicia um descanso primeiro ⏱'); return; }
   pipWarmup();
@@ -771,7 +771,7 @@ window.addEventListener('pagehide', () => { pipAuto(); });
 // O iPhone não tem janela flutuante (limitação da Apple), mas mostra o timer
 // na TELA DE BLOQUEIO: um áudio silencioso mantém o app vivo em background
 // e o Media Session atualiza a contagem regressiva na telinha de "tocando agora".
-let lockAC = null, lockSilentSrc = null, lockEnding = false, lockLastSec = -1, lockHandlers = false;
+let lockAC = null, lockSilentSrc = null, lockEnding = false, lockLastSec = -1, lockHandlers = false, lockOn = false;
 function isiPhone() { return /iPhone|iPod/.test(navigator.userAgent || ''); }
 function lockArtwork() {
   try { return [{ src: 'icon-512.png', sizes: '512x512', type: 'image/png' }]; } catch (e) { return []; }
@@ -799,6 +799,7 @@ function lockTimerStart() {
     }
     navigator.mediaSession.playbackState = 'playing';
     lockLastSec = -1;
+    lockOn = true; // indicador 🔒 na pílula: modo tela de bloqueio ativo
     lockTimerPaint();
   } catch (e) {}
 }
@@ -826,6 +827,7 @@ function lockTimerCleanup() {
     navigator.mediaSession.metadata = null;
   } catch (e) {}
   lockLastSec = -1;
+  lockOn = false;
 }
 function lockTimerEnd() {
   if (!('mediaSession' in navigator)) return;
