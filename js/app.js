@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v58'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v59'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -893,11 +893,24 @@ function beepCtx() {
   } catch (e) { return null; }
 }
 
+// iPhone: dispara o timer NATIVO do iOS via app Atalhos (configurado uma vez na aba Conta).
+// Contagem na tela de bloqueio, Dynamic Island, e toca mesmo no silencioso.
+function iphoneNativeTimer() {
+  if (!restTimer) { toast('Inicia um descanso primeiro ⏱'); return; }
+  const secs = restLeft();
+  if (secs <= 0) return;
+  try {
+    window.location.href = 'shortcuts://run-shortcut?name=' + encodeURIComponent('DescansoCasalNavy') + '&input=text&text=' + secs;
+  } catch (e) { toast('Crie o atalho DescansoCasalNavy no app Atalhos 📲'); }
+}
+
 /* pílula arrastável: dá pra mover o timer pra qualquer canto da tela */
 function initRestDrag() {
   const bar = $('#restbar'), pill = $('#rest-pill');
   if (!bar || !pill || bar.dataset.dragInit) return;
   bar.dataset.dragInit = '1';
+  // no iPhone o botão vira o timer nativo (via Atalhos)
+  if (isiPhone()) { const fb = $('#rest-float'); if (fb) { fb.textContent = '⏱'; fb.title = 'Timer nativo do iPhone'; } }
   try {
     const p = JSON.parse(localStorage.getItem('cn_rest_pos') || 'null');
     if (p && p.x) { bar.style.left = p.x; bar.style.top = p.y; bar.style.right = 'auto'; bar.style.bottom = 'auto'; }
@@ -2781,6 +2794,14 @@ function renderConta() {
     <label class="lbl">Link da playlist</label><input id="c-spotify" placeholder="https://open.spotify.com/playlist/..." value="${esc((S.meta&&S.meta.spotify_playlist)||DEFAULT_SPOTIFY)}">
     <button class="btn primary" id="c-spsave">Salvar playlist</button></div>`;
 
+  if (isiPhone()) h += `<div class="card"><h3>⏱ Timer nativo do iPhone</h3>
+    <div class="sub">Faz o descanso usar o <b>timer de verdade do iPhone</b>: contagem na tela de bloqueio, sem atraso e toca mesmo no silencioso. Configure <b>uma vez só</b>:</div>
+    <div class="sub" style="text-align:left">1️⃣ Abra o app <b>Atalhos</b> → toque em <b>+</b><br>
+    2️⃣ Adicione a ação <b>“Iniciar Timer”</b> (do app Relógio)<br>
+    3️⃣ Toque na <b>duração</b> → escolha <b>Entrada do Atalho</b><br>
+    4️⃣ Toque no nome no topo e chame de <b>DescansoCasalNavy</b> → OK</div>
+    <div class="sub">Depois é só tocar no <b>⏱</b> da pílula do descanso. ✅</div></div>`;
+
   h += `<button class="btn danger" id="c-logout">Sair da conta</button>`;
   h += `<div class="sub" style="text-align:center;margin-top:10px" id="app-ver">versão do app: ${APP_VERSION} — <span style="text-decoration:underline">toque para verificar atualização</span></div>`;
   h += `<div style="text-align:center;margin-top:8px"><button class="btn" id="force-upd" style="font-size:13px;padding:8px 16px">Forçar atualização 🔄</button></div>`;
@@ -2960,6 +2981,9 @@ document.addEventListener('click', e => {
   if (e.target && e.target.id === 'rest-plus' && restTimer) {
     restTimer.endAt += 30000; restTimer.total += 30; persistRest(); paintRest();
   }
-  if (e.target && e.target.id === 'rest-float') floatTimer();
+  if (e.target && e.target.id === 'rest-float') {
+    if (isiPhone()) iphoneNativeTimer();
+    else floatTimer();
+  }
   if (e.target && e.target.id === 'rest-stop') stopRestTimer();
 });
