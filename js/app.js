@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v56'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v57'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -767,35 +767,66 @@ document.addEventListener('visibilitychange', () => {
 // backup pro iPhone (pagehide dispara ao sair do app)
 window.addEventListener('pagehide', () => { pipAuto(); });
 
-/* ---------- timer na tela de bloqueio (iPhone) via Media Session ---------- */
-// O iPhone não tem janela flutuante (limitação da Apple), mas mostra o timer
-// na TELA DE BLOQUEIO: um áudio silencioso mantém o app vivo em background
-// e o Media Session atualiza a contagem regressiva na telinha de "tocando agora".
+/* ---------- timer na tela de bloqueio ---------- */
+// ANDROID: PiP flutuante + Media Session (notificação).
+// iPHONE: o iOS não tem Media Session API nem PiP — o caminho nativo é um
+// <audio> tocando (silêncio): o iOS mostra o widget "Tocando agora" na tela
+// de bloqueio sozinho, lendo o TÍTULO da página como contagem regressiva.
+// O áudio ainda mantém a página viva em background → o beep do fim toca.
 let lockAC = null, lockSilentSrc = null, lockEnding = false, lockLastSec = -1, lockHandlers = false, lockOn = false;
+let lockAudioEl = null, lockLastTitleSec = -1;
+const DOC_TITLE = document.title;
 function isiPhone() { return /iPhone|iPod/.test(navigator.userAgent || ''); }
 function lockArtwork() {
   try { return [{ src: 'icon-512.png', sizes: '512x512', type: 'image/png' }]; } catch (e) { return []; }
 }
+// --- iPhone: áudio silencioso + título do documento ---
+function iphoneLockStart() {
+  try {
+    if (!lockAudioEl) {
+      lockAudioEl = document.createElement('audio');
+      lockAudioEl.loop = true;
+      lockAudioEl.preload = 'auto';
+      lockAudioEl.setAttribute('playsinline', '');
+      lockAudioEl.src = 'audio/silence.mp3';
+    }
+    const p = lockAudioEl.play();
+    if (p && p.catch) p.catch(() => {});
+    beepCtx(); // cria a sessão do beep já no gesto (pra ele tocar com o app minimizado)
+    lockOn = true;
+    lockLastTitleSec = -1;
+    iphoneLockPaint();
+  } catch (e) {}
+}
+function iphoneLockPaint() {
+  if (!restTimer) return;
+  const left = restLeft();
+  if (left === lockLastTitleSec) return;
+  lockLastTitleSec = left;
+  try { document.title = '⏱ ' + fmtT(left) + ' • Casal Navy'; } catch (e) {}
+}
+function iphoneLockEnd() {
+  try { document.title = 'BORA! 💪🔥 • Casal Navy'; } catch (e) {}
+  setTimeout(() => {
+    try { if (lockAudioEl) lockAudioEl.pause(); } catch (e) {}
+    try { document.title = DOC_TITLE; } catch (e) {}
+    lockOn = false; lockLastTitleSec = -1;
+  }, 8000);
+}
+function iphoneLockStop() {
+  try { if (lockAudioEl) lockAudioEl.pause(); } catch (e) {}
+  try { document.title = DOC_TITLE; } catch (e) {}
+  lockOn = false; lockLastTitleSec = -1;
+}
+// --- Android/desktop: Media Session ---
 function lockTimerStart() {
+  if (isiPhone()) { iphoneLockStart(); return; }
   if (!('mediaSession' in navigator)) return;
   try {
     if (!lockHandlers) {
       lockHandlers = true;
       try { navigator.mediaSession.setActionHandler('play', () => {}); } catch (e) {}
       try { navigator.mediaSession.setActionHandler('pause', () => {}); } catch (e) {}
-    }
-    // áudio silencioso em loop: iPhone mantém a página rodando em background
-    if (isiPhone()) {
-      const AC = window.AudioContext || window.webkitAudioContext;
-      if (AC && !lockAC) {
-        lockAC = new AC();
-        const buf = lockAC.createBuffer(1, lockAC.sampleRate, lockAC.sampleRate);
-        lockSilentSrc = lockAC.createBufferSource();
-        lockSilentSrc.buffer = buf; lockSilentSrc.loop = true;
-        lockSilentSrc.connect(lockAC.destination);
-        try { lockSilentSrc.start(); } catch (e) {}
-      }
-      if (lockAC && lockAC.state === 'suspended') { try { lockAC.resume(); } catch (e) {} }
     }
     navigator.mediaSession.playbackState = 'playing';
     lockLastSec = -1;
@@ -804,6 +835,7 @@ function lockTimerStart() {
   } catch (e) {}
 }
 function lockTimerPaint() {
+  if (isiPhone()) { iphoneLockPaint(); return; }
   if (!('mediaSession' in navigator) || !restTimer) return;
   try {
     const left = restLeft();
@@ -830,6 +862,7 @@ function lockTimerCleanup() {
   lockOn = false;
 }
 function lockTimerEnd() {
+  if (isiPhone()) { iphoneLockEnd(); return; }
   if (!('mediaSession' in navigator)) return;
   try {
     navigator.mediaSession.metadata = new MediaMetadata({
@@ -840,6 +873,7 @@ function lockTimerEnd() {
   setTimeout(lockTimerCleanup, 8000);
 }
 function lockTimerStop() { // parada manual: limpa na hora
+  if (isiPhone()) { iphoneLockStop(); return; }
   if (!('mediaSession' in navigator)) return;
   lockTimerCleanup();
 }
