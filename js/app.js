@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v57'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v58'; // manter igual ao CACHE do sw.js
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -761,11 +761,17 @@ async function unfloatTimer() {
 
 // flutua sozinho ao minimizar o app durante o descanso
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden) pipAuto();
+  if (document.hidden) {
+    pipAuto();
+    if (isiPhone() && restTimer) { lockLastTitleSec = -1; iphoneLockPaint(); } // título fresquinho na hora de bloquear
+  }
   else if (restTimer) pipWarmup();
 });
 // backup pro iPhone (pagehide dispara ao sair do app)
-window.addEventListener('pagehide', () => { pipAuto(); });
+window.addEventListener('pagehide', () => {
+  pipAuto();
+  if (isiPhone() && restTimer) { lockLastTitleSec = -1; iphoneLockPaint(); }
+});
 
 /* ---------- timer na tela de bloqueio ---------- */
 // ANDROID: PiP flutuante + Media Session (notificação).
@@ -803,7 +809,7 @@ function iphoneLockPaint() {
   const left = restLeft();
   if (left === lockLastTitleSec) return;
   lockLastTitleSec = left;
-  try { document.title = '⏱ ' + fmtT(left) + ' • Casal Navy'; } catch (e) {}
+  try { document.title = '⏱ ' + fmtT(left) + ' — ' + restTimer.label; } catch (e) {}
 }
 function iphoneLockEnd() {
   try { document.title = 'BORA! 💪🔥 • Casal Navy'; } catch (e) {}
