@@ -658,9 +658,9 @@ function resumeRestTimer() {
   } catch (e) {}
 }
 /* ---------- timer flutuante fora do app (Picture-in-Picture) ---------- */
-// Janelinha sempre visível por cima de outros apps (WhatsApp etc.).
-// AUTOMÁTICO: o vídeo fica pré-aquecido (tocando) desde o início do descanso;
-// ao minimizar, o navegador flutua sozinho — sem apertar nada.
+// Janelinha por cima de outros apps (WhatsApp etc.) — SÓ MANUAL, pelo botão
+// "Flutuar" na pílula do descanso. O PiP automático foi removido: a janela do
+// Chrome aparecia sozinha (e quebrada, sem o timer) toda vez que minimizava.
 let pipVideo = null, pipCanvas = null, pipCtx = null, pipStream = null, pipOn = false;
 
 function pipEnsure() {
@@ -674,8 +674,7 @@ function pipEnsure() {
     pipVideo.playsInline = true;
     pipVideo.setAttribute('playsinline', '');
     pipVideo.disablePictureInPicture = false;
-    // modo automático nativo do Chrome: flutua sozinho ao trocar de app
-    try { pipVideo.setAttribute('autoPictureInPicture', ''); } catch (e) {}
+    // (sem autoPictureInPicture: o PiP só abre pelo botão "Flutuar")
     // fora da tela, mas RENDERIZÁVEL (display:none quebra o PiP no Chrome)
     pipVideo.style.cssText = 'position:fixed;left:-20px;top:-20px;width:4px;height:4px;opacity:0.01;pointer-events:none;';
     document.body.appendChild(pipVideo);
@@ -698,18 +697,7 @@ function pipWarmup() {
   } catch (e) {}
 }
 
-// flutua agora (vídeo já está tocando — sem awaits que o background pode matar)
-function pipAuto() {
-  if (pipOn || !restTimer || !pipVideo || isiPhone()) return; // iPhone usa a tela de bloqueio
-  try {
-    if (pipVideo.requestPictureInPicture) {
-      const p = pipVideo.requestPictureInPicture();
-      if (p && p.catch) p.catch(() => {});
-    } else if (pipVideo.webkitSetPresentationMode) {
-      pipVideo.webkitSetPresentationMode('picture-in-picture');
-    }
-  } catch (e) {}
-}
+// (pipAuto removido: PiP automático desligado — só pelo botão "Flutuar")
 
 function drawPip(done) {
   if (!pipCtx) return;
@@ -759,17 +747,15 @@ async function unfloatTimer() {
   pipOn = false;
 }
 
-// flutua sozinho ao minimizar o app durante o descanso
+// PiP automático desligado: minimizar o app NÃO abre mais a janelinha sozinha.
+// Quem quiser o timer flutuando usa o botão "Flutuar" na pílula do descanso.
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
-    pipAuto();
     if (isiPhone() && restTimer) { lockLastTitleSec = -1; iphoneLockPaint(); } // título fresquinho na hora de bloquear
   }
   else if (restTimer) pipWarmup();
 });
-// backup pro iPhone (pagehide dispara ao sair do app)
 window.addEventListener('pagehide', () => {
-  pipAuto();
   if (isiPhone() && restTimer) { lockLastTitleSec = -1; iphoneLockPaint(); }
 });
 
