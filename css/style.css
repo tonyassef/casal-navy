@@ -177,7 +177,8 @@ canvas.chart{width:100%;height:220px;background:var(--surface);border:1px solid 
 .note-head b{color:var(--text);font-size:14px;}
 .note-msg{font-size:15px;white-space:pre-wrap;}
 .note .note-del{margin-top:8px;}
-.note-banner{background:linear-gradient(135deg,#ffeef5,#fff);border:1px solid #f3c6da;}
+.note-banner{background:linear-gradient(135deg,#ffeef5,#fff);border:1px solid #f3c6da;position:relative;}
+.note-x{position:absolute;top:6px;right:8px;border:0;background:transparent;font-size:16px;color:#b76e8b;cursor:pointer;padding:4px 6px;line-height:1;}
 .sec-t{font-size:15px;margin:14px 2px 8px;color:var(--accent-d);}
 
 /* check-in na academia */
