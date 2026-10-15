@@ -454,11 +454,20 @@ function lastEntryFor(ex, dayLbl) {
     for (const e of (l.entries || [])) {
       if (e.kind) continue;
       if (targets.includes(normName(e.name))) {
-        return { weight: e.weight || '', partnerWeight: e.partnerWeight || '', partnerReps: e.partnerReps || '', notes: e.notes || '' };
+        return { weight: e.weight || '', partnerWeight: e.partnerWeight || '', partnerReps: e.partnerReps || '', notes: e.notes || '',
+          setRows: (e.setRows || []).map(rw => ({ w: rw.w || '', w2: rw.w2 || '', r: rw.r || '', done: false })) };
       }
     }
   }
   return null;
+}
+// peso "geral" = resumo das séries — mantém compat com telas antigas, CSV e volume.
+// Se todas as séries têm o mesmo peso, mostra um valor só ("80", não "80/80/80").
+function syncWeightFromRows(st) {
+  const ws = (st.setRows || []).map(rw => (rw.w || '').trim()).filter(Boolean);
+  st.weight = ws.length && ws.every(w => w === ws[0]) ? ws[0] : ws.join('/');
+  const w2s = (st.setRows || []).map(rw => (rw.w2 || '').trim()).filter(Boolean);
+  if (w2s.length) st.partnerWeight = w2s.every(w => w === w2s[0]) ? w2s[0] : w2s.join('/');
 }
 function openExercise(i) {
   ensureDraft();
@@ -471,47 +480,84 @@ function openExercise(i) {
   let st = S.draft.entries[i];
   let prefilled = false;
   if (!st) {
-    st = { variant: 'A', weight: '', partnerWeight: '', partnerReps: '', doneSets: [], notes: '', sets: ex.sets, reps: ex.reps, technique: ex.technique, rest: ex.rest };
+    st = { variant: 'A', weight: '', partnerWeight: '', partnerReps: '', doneSets: [], setRows: null, notes: '', sets: ex.sets, reps: ex.reps, technique: ex.technique, rest: ex.rest };
     const last = lastEntryFor(ex, dayLabel(S.plan.days[S.todayIdx]));
-    if (last && (last.weight || last.partnerWeight || last.notes)) {
+    if (last && (last.weight || last.partnerWeight || last.notes || (last.setRows && last.setRows.length))) {
       st.weight = last.weight; st.partnerWeight = last.partnerWeight; st.partnerReps = last.partnerReps;
       st.notes = last.notes || '';
+      if (last.setRows && last.setRows.length) st._prefillRows = last.setRows;
       prefilled = true;
     }
   }
+  const name = st.variant === 'B' && ex.nameB ? ex.nameB : ex.nameA;
+  const partner = ssPartner(st.technique || ex.technique);
   const nSets = Math.max(1, parseInt(st.sets || ex.sets || '3', 10) || 3);
-  while (st.doneSets.length < nSets) st.doneSets.push(false);
+  // Tabela por série: peso e reps individuais. Na primeira abertura, preenche com as
+  // séries do último treino (se houver) ou com o peso/reps do plano.
+  if (!st.setRows || !st.setRows.length) {
+    const src = st._prefillRows || [];
+    const defW = String(st.weight || '').split('/').map(s => s.trim());
+    const defW2 = String(st.partnerWeight || '').split('/').map(s => s.trim());
+    const defR = st.reps || ex.reps || '';
+    st.setRows = [];
+    for (let k = 0; k < nSets; k++) {
+      const pr = src[k] || {};
+      st.setRows.push({
+        w: pr.w || defW[k] || defW[0] || '',
+        w2: pr.w2 || defW2[k] || defW2[0] || '',
+        r: pr.r || defR,
+        done: !!(st.doneSets && st.doneSets[k]),
+      });
+    }
+    delete st._prefillRows;
+  }
+  while (st.setRows.length < nSets) {
+    const f = st.setRows[0] || {};
+    st.setRows.push({ w: f.w || '', w2: f.w2 || '', r: st.reps || ex.reps || '', done: false });
+  }
+  if (st.setRows.length > nSets) st.setRows.length = nSets;
+  st.doneSets = st.setRows.map(rw => !!rw.done);
+  syncWeightFromRows(st);
   // se a técnica do plano mudou depois que o rascunho nasceu (ex.: patch colocou
   // o drop-set), reflete no treino de hoje — só preenche quando está vazio
   if (!st.technique && ex.technique) { st.technique = ex.technique; }
-  const name = st.variant === 'B' && ex.nameB ? ex.nameB : ex.nameA;
-  const partner = ssPartner(st.technique || ex.technique);
+
+  const rowsHtml = `
+    <div class="settable" id="m-setrows">
+      <div class="setrow sethead"><span>#</span><span>Peso (lbs)</span>${partner ? '<span>Peso 2 (lbs)</span>' : ''}<span>Reps</span><span></span></div>
+      ${st.setRows.map((rw, k) => `
+      <div class="setrow${partner ? ' cols5' : ''}" data-k="${k}">
+        <span class="setnum">${k + 1}</span>
+        <input class="set-w" inputmode="decimal" value="${esc(rw.w)}" placeholder="—" aria-label="Peso série ${k + 1}">
+        ${partner ? `<input class="set-w2" inputmode="decimal" value="${esc(rw.w2)}" placeholder="—" aria-label="Peso 2 série ${k + 1}">` : ''}
+        <input class="set-r" inputmode="numeric" value="${esc(rw.r)}" placeholder="—" aria-label="Reps série ${k + 1}">
+        <button class="set-done${rw.done ? ' on' : ''}" data-k="${k}" title="Marcar série concluída">✓</button>
+      </div>`).join('')}
+    </div>`;
 
   const loadHtml = partner ? `
     <div class="row2">
       <div><label class="lbl">Séries</label><input id="m-sets" value="${esc(st.sets || ex.sets || '')}"></div>
       <div><label class="lbl">Descanso (seg)</label><input id="m-rest" type="number" value="${esc(st.rest || ex.rest || 180)}"></div>
     </div>
-    <label class="lbl">Técnica</label><input id="m-tech" value="${esc(st.technique || ex.technique || '')}">
-    <div class="ss-head">1 — ${esc(name)}</div>
     <div class="row2">
-      <div><label class="lbl">Carga (lbs) — ex: 70/55/40</label><input id="m-weight" inputmode="decimal" value="${esc(st.weight)}" placeholder="peso usado"></div>
-      <div><label class="lbl">Reps</label><input id="m-reps" value="${esc(st.reps || ex.reps || '')}"></div>
+      <div><label class="lbl">Reps (padrão)</label><input id="m-reps" value="${esc(st.reps || ex.reps || '')}"></div>
+      <div><label class="lbl">Técnica</label><input id="m-tech" value="${esc(st.technique || ex.technique || '')}"></div>
     </div>
+    <div class="ss-head">1 — ${esc(name)}</div>
     <div class="ss-head">2 — ${esc(partner)} <small>(super-set)</small></div>
-    <div class="row2">
-      <div><label class="lbl">Carga (lbs) — ex: 25/20/15</label><input id="m-weight2" inputmode="decimal" value="${esc(st.partnerWeight || '')}" placeholder="peso usado"></div>
-      <div><label class="lbl">Reps</label><input id="m-reps2" value="${esc(st.partnerReps || ex.reps || '')}"></div>
-    </div>` : `
+    <label class="lbl">Séries — peso e reps por série</label>
+    ${rowsHtml}` : `
     <div class="row2">
       <div><label class="lbl">Séries</label><input id="m-sets" value="${esc(st.sets || ex.sets || '')}"></div>
-      <div><label class="lbl">Reps</label><input id="m-reps" value="${esc(st.reps || ex.reps || '')}"></div>
+      <div><label class="lbl">Reps (padrão)</label><input id="m-reps" value="${esc(st.reps || ex.reps || '')}"></div>
     </div>
-    <label class="lbl">Técnica</label><input id="m-tech" value="${esc(st.technique || ex.technique || '')}">
     <div class="row2">
+      <div><label class="lbl">Técnica</label><input id="m-tech" value="${esc(st.technique || ex.technique || '')}"></div>
       <div><label class="lbl">Descanso (seg)</label><input id="m-rest" type="number" value="${esc(st.rest || ex.rest || 180)}"></div>
-      <div><label class="lbl">Carga (lbs) — ex: 70/55/40/25</label><input id="m-weight" inputmode="decimal" value="${esc(st.weight)}" placeholder="peso usado"></div>
-    </div>`;
+    </div>
+    <label class="lbl">Séries — peso e reps por série</label>
+    ${rowsHtml}`;
 
   openModal(`
     <h3>${esc(name)}${partner ? ' <small style="color:var(--muted)">+ super-set</small>' : ''}</h3>
@@ -523,8 +569,6 @@ function openExercise(i) {
     </div>` : `<div class="kv"><span>Plano A</span><b>${esc(ex.nameA)}</b></div>`}
     ${loadHtml}
     ${prefilled ? '<div class="sub" style="color:var(--gold)">↩ puxei o peso e as observações do seu último treino deste plano — ajusta se precisar 💪</div>' : ''}
-    <label class="lbl">Séries concluídas</label>
-    <div class="sets-row" id="m-setsrow">${st.doneSets.map((d,k)=>`<button class="set-chip ${d?'on':''}" data-k="${k}">${k+1}</button>`).join('')}</div>
     <button class="btn" id="m-timer">⏱ Descansar</button>
     <label class="lbl">Observações</label>
     <textarea id="m-notes" rows="2" placeholder="ex: dor no ombro, máquina ocupada...">${esc(st.notes)}</textarea>
@@ -532,10 +576,19 @@ function openExercise(i) {
     <button class="btn" id="m-close">Voltar</button>`);
 
   const readFields = () => {
-    st.sets=$('#m-sets').value; st.reps=$('#m-reps').value; st.technique=$('#m-tech').value;
-    st.rest=$('#m-rest').value; st.weight=$('#m-weight').value; st.notes=$('#m-notes').value;
-    const w2 = $('#m-weight2');
-    if (w2) { st.partnerWeight = w2.value; st.partnerReps = $('#m-reps2').value; st.partnerName = partner; }
+    st.sets = $('#m-sets').value; st.reps = $('#m-reps').value; st.technique = $('#m-tech').value;
+    st.rest = $('#m-rest').value; st.notes = $('#m-notes').value;
+    $$('#m-setrows .setrow[data-k]').forEach(row => {
+      const k = +row.dataset.k, rw = st.setRows[k];
+      if (!rw) return;
+      rw.w = row.querySelector('.set-w').value;
+      rw.r = row.querySelector('.set-r').value;
+      const w2 = row.querySelector('.set-w2');
+      if (w2) rw.w2 = w2.value;
+    });
+    st.doneSets = st.setRows.map(rw => !!rw.done);
+    syncWeightFromRows(st);
+    if (partner) st.partnerReps = st.reps;
   };
 
   $$('#modal-card .ab-toggle button').forEach(b => b.addEventListener('click', () => {
@@ -545,13 +598,21 @@ function openExercise(i) {
   $('#m-sets').addEventListener('change', e => {
     st.sets = e.target.value;
     const n = Math.max(1, parseInt(st.sets, 10) || 3);
-    st.doneSets = Array.from({length:n}, (_,k)=>st.doneSets[k]||false);
-    S.draft.entries[i]=st; saveDraft(); openExercise(i);
+    const rows = [];
+    for (let k = 0; k < n; k++) {
+      rows.push(st.setRows[k] || { w: (st.setRows[0] || {}).w || '', w2: (st.setRows[0] || {}).w2 || '', r: st.reps || ex.reps || '', done: false });
+    }
+    st.setRows = rows;
+    st.doneSets = rows.map(rw => !!rw.done);
+    S.draft.entries[i] = st; saveDraft(); openExercise(i);
   });
-  $$('#m-setsrow .set-chip').forEach(c => c.addEventListener('click', () => {
-    const k = +c.dataset.k; st.doneSets[k] = !st.doneSets[k]; c.classList.toggle('on', st.doneSets[k]);
+  $$('#m-setrows .set-done').forEach(b => b.addEventListener('click', () => {
+    const k = +b.dataset.k, rw = st.setRows[k];
+    if (!rw) return;
+    rw.done = !rw.done; b.classList.toggle('on', rw.done);
+    st.doneSets = st.setRows.map(x => !!x.done);
     S.draft.entries[i] = st; saveDraft(); // marca série e já salva
-    if (st.doneSets[k]) startRestTimer(parseInt(st.rest, 10) || 180, name); // série feita → descansa
+    if (rw.done) startRestTimer(parseInt(st.rest, 10) || 180, name); // série feita → descansa
   }));
   // AUTO-SAVE: qualquer valor digitado salva na hora (aparelho + nuvem).
   // Fechar o app no meio do exercício não apaga mais nada.
@@ -560,13 +621,13 @@ function openExercise(i) {
   });
   $('#m-timer').addEventListener('click', () => {
     readFields();
-    S.draft.entries[i]=st; saveDraft(); closeModal();
-    startRestTimer(parseInt(st.rest,10)||180, name);
+    S.draft.entries[i] = st; saveDraft(); closeModal();
+    startRestTimer(parseInt(st.rest, 10) || 180, name);
     toast('Descansando… te aviso quando acabar ⏱');
   });
   $('#m-save').addEventListener('click', () => {
     readFields();
-    S.draft.entries[i]=st; saveDraft(); closeModal(); renderHoje(); toast('Exercício salvo ✓');
+    S.draft.entries[i] = st; saveDraft(); closeModal(); renderHoje(); toast('Exercício salvo ✓');
   });
   $('#m-close').addEventListener('click', () => {
     readFields(); // voltar também salva o que foi digitado
@@ -948,6 +1009,7 @@ async function finishWorkout() {
     return { name: st.variant==='B' && ex.nameB ? ex.nameB : ex.nameA, variant: st.variant,
       sets: st.sets, reps: st.reps, technique: st.technique, rest: st.rest,
       weight: st.weight, partnerName: st.partnerName || '', partnerWeight: st.partnerWeight || '', partnerReps: st.partnerReps || '',
+      setRows: (st.setRows || []).map(rw => ({ w: rw.w || '', w2: rw.w2 || '', r: rw.r || '', done: !!rw.done })),
       doneSets: st.doneSets.filter(Boolean).length, notes: st.notes };
   }).filter(e => e.weight || e.doneSets > 0 || e.notes);
   // finalização: cardio + abs viram entradas especiais do treino
@@ -1059,36 +1121,35 @@ function shareCardCanvas(o) {
     [String(o.exercises_count || 0), 'exerc\u00EDcios', '\uD83D\uDCCB'],
     [String(o.streak || 0), 'dias seguidos', '\uD83D\uDD25'],
   ];
-  const bw = 440, bh = 160, gx = (W - bw * 2 - 36) / 2, gy = 408;
+  const bw = 440, bh = 150, gx = (W - bw * 2 - 36) / 2, gy = 408;
   stats.forEach(([v, l, ic], k) => {
-    const bx = gx + (k % 2) * (bw + 36), by = gy + Math.floor(k / 2) * (bh + 28);
+    const bx = gx + (k % 2) * (bw + 36), by = gy + Math.floor(k / 2) * (bh + 24);
     x.fillStyle = 'rgba(255,255,255,.12)';
     x.beginPath(); x.roundRect(bx, by, bw, bh, 26); x.fill();
     x.fillStyle = '#ffffff';
-    fitText(ic + ' ' + v, bx + bw / 2, by + 84, bw - 48, 54, '800');
+    fitText(ic + ' ' + v, bx + bw / 2, by + 78, bw - 48, 52, '800');
     x.fillStyle = '#9fd0f5';
-    fitText(l, bx + bw / 2, by + 130, bw - 48, 32, '500');
+    fitText(l, bx + bw / 2, by + 122, bw - 48, 30, '500');
   });
-  let y = gy + 2 * (bh + 28) + 36;
-  // ---- kcal ----
+  let y = gy + 2 * (bh + 24) + 30;
+  // ---- kcal (chip fino, uma linha) ----
   if (+o.kcal > 0) {
-    const kh = 104;
+    const kh = 64;
     x.fillStyle = 'rgba(255,255,255,.12)';
     x.beginPath(); x.roundRect(gx, y, bw * 2 + 36, kh, 24); x.fill();
     x.fillStyle = '#ffffff';
-    fitText('\uD83D\uDD25 ~' + (+o.kcal).toLocaleString('pt-BR') + ' kcal', W/2, y + 62, W - 240, 50, '800');
-    y += kh + 28;
+    fitText('\uD83D\uDD25 ~' + (+o.kcal).toLocaleString('pt-BR') + ' kcal', W/2, y + 44, W - 240, 42, '800');
+    y += kh + 18;
   }
   // ---- destaques em balões (só quantos couberem antes do rodapé) ----
-  const FOOT = H - 176;
+  const FOOT = H - 160;
   let tops = ((o.entries || []).map(e => ({ e, v: entryVolume(e) }))
-    .filter(t => t.v > 0).sort((a, b) => b.v - a.v));
-  const boxH = 148, gap = 18, titleH = 64, fullW = bw * 2 + 36;
-  while (tops.length > 3) tops.pop();
+    .filter(t => t.v > 0).sort((a, b) => b.v - a.v).slice(0, 2));
+  const boxH = 128, gap = 12, titleH = 52, fullW = bw * 2 + 36;
   while (tops.length && y + titleH + tops.length * (boxH + gap) - gap > FOOT) tops.pop();
   if (tops.length) {
     x.fillStyle = '#9fd0f5';
-    fitText('D E S T A Q U E S   D O   T R E I N O', W/2, y + 40, W - 200, 30, '700');
+    fitText('D E S T A Q U E S   D O   T R E I N O', W/2, y + 32, W - 200, 28, '700');
     y += titleH;
     tops.forEach(t => {
       x.fillStyle = 'rgba(255,255,255,.10)';
@@ -1096,11 +1157,21 @@ function shareCardCanvas(o) {
       let name = String(t.e.name || 'Exerc\u00EDcio');
       if (name.length > 40) name = name.slice(0, 39) + '\u2026';
       x.fillStyle = '#ffffff';
-      fitText('\uD83C\uDFC5 ' + name, W/2, y + 64, fullW - 96, 40, '700');
-      const sets = t.e.doneSets > 0 ? t.e.doneSets : (parseInt(t.e.sets, 10) || 0);
-      const det = (sets + '\u00D7 ' + (t.e.reps || '') + (t.e.weight ? '  \u2022  ' + t.e.weight + ' lbs' : '')).trim();
+      fitText('\uD83C\uDFC5 ' + name, W/2, y + 56, fullW - 96, 38, '700');
+      let sets = t.e.doneSets > 0 ? t.e.doneSets : (parseInt(t.e.sets, 10) || 0);
+      let repsTxt = t.e.reps || '', wTxt = t.e.weight ? t.e.weight + ' lbs' : '';
+      if (t.e.setRows && t.e.setRows.length) {
+        const doneRows = t.e.setRows.filter(rw => rw.done);
+        const rows = doneRows.length ? doneRows : t.e.setRows;
+        sets = doneRows.length || rows.length;
+        const reps = rows.map(rw => (rw.r || '').trim()).filter(Boolean);
+        if (reps.length) repsTxt = [...new Set(reps)].join('/');
+        const ws = rows.map(rw => (rw.w || '').trim()).filter(Boolean);
+        if (ws.length) wTxt = [...new Set(ws)].join('/') + ' lbs';
+      }
+      const det = (sets + '\u00D7 ' + repsTxt + (wTxt ? '  \u2022  ' + wTxt : '')).trim();
       x.fillStyle = '#9fd0f5';
-      fitText(det, W/2, y + 112, fullW - 96, 30, '500');
+      fitText(det, W/2, y + 98, fullW - 96, 28, '500');
       y += boxH + gap;
     });
   }
@@ -1111,9 +1182,9 @@ function shareCardCanvas(o) {
     : streak >= 3 ? '\uD83D\uDD25 ' + streak + ' dias seguidos \u2014 mant\u00E9m o ritmo!'
     : frases[(new Date().getDate() + streak) % frases.length];
   x.fillStyle = '#ffd76a';
-  fitText(frase, W/2, H - 104, W - 160, 36, '700');
+  fitText(frase, W/2, H - 100, W - 160, 34, '700');
   x.fillStyle = '#9fd0f5';
-  fitText('Feito no Casal Navy \uD83C\uDFCB\uFE0F', W/2, H - 48, W - 160, 32, '500');
+  fitText('Feito no Casal Navy \uD83C\uDFCB\uFE0F', W/2, H - 48, W - 160, 30, '500');
   return cv;
 }
 async function dlFile(f) {
@@ -1627,6 +1698,15 @@ function renderDesafios() {
 function entrySets(e) { if (e.kind) return 0; return e.doneSets > 0 ? e.doneSets : (parseInt(e.sets, 10) || 0); }
 function entryVolume(e) {
   if (e.kind) return 0;
+  if (e.setRows && e.setRows.length) {
+    let v = 0;
+    e.setRows.forEach(rw => {
+      if (!rw.done) return;
+      const m = maxLoad(rw.w); if (m != null) v += m;
+      const m2 = maxLoad(rw.w2); if (m2 != null) v += m2;
+    });
+    return v;
+  }
   const s = entrySets(e); let v = 0;
   const m = maxLoad(e.weight); if (m != null) v += m * s;
   const m2 = maxLoad(e.partnerWeight); if (m2 != null) v += m2 * s;
@@ -1638,6 +1718,14 @@ function draftVolume() {
   const d = S.draft; if (!d || !d.entries) return 0;
   let v = 0;
   Object.values(d.entries).forEach(st => {
+    if (st.setRows && st.setRows.length) {
+      st.setRows.forEach(rw => {
+        if (!rw.done) return;
+        const m = maxLoad(rw.w); if (m != null) v += m;
+        const m2 = maxLoad(rw.w2); if (m2 != null) v += m2;
+      });
+      return;
+    }
     const n = (st.doneSets || []).filter(Boolean).length;
     if (!n) return;
     const m = maxLoad(st.weight); if (m != null) v += m * n;
