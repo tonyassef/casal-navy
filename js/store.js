@@ -237,7 +237,13 @@ const Store = {
           try { await SB.getUser(); }
           catch (e) { if (!netErr(e)) throw e; /* offline: entra com os dados em cache */ }
         } else {
-          throw new Error('sessao expirada');
+          // sem token e refresh falhou: só condena a sessão com PROVA de rede.
+          // Offline o getUser abaixo falha como erro de rede -> mantém a sessão e entra com o cache.
+          try { await SB.getUser(); }
+          catch (e) {
+            if (netErr(e)) { /* sem internet: mantém a sessão salva */ }
+            else throw new Error('sessao expirada');
+          }
         }
       } catch (e) {
         if (netErr(e)) {
