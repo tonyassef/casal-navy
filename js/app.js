@@ -935,10 +935,13 @@ function lockTimerStop() { // parada manual: limpa na hora
 }
 // o beep do fim do descanso usa a sessão de áudio já ativa (toca até com o app minimizado)
 function beepCtx() {
+  // Cria o contexto no gesto (desbloqueia o autoplay pro beep final) mas o mantém
+  // SUSPENSO: um AudioContext rodando segura o foco de áudio do Android e abaixa
+  // o Spotify/YouTube durante o descanso inteiro. O resume acontece só no beep.
   if (lockAC) return lockAC;
   try {
     if (!window._beepAC) window._beepAC = new (window.AudioContext || window.webkitAudioContext)();
-    if (window._beepAC.state === 'suspended') window._beepAC.resume();
+    try { window._beepAC.suspend(); } catch (e) {}
     return window._beepAC;
   } catch (e) { return null; }
 }
@@ -995,9 +998,17 @@ function fmtT(s){ return pad(Math.floor(s/60)) + ':' + pad(s%60); }
 function beep(){
   try{
     const ctx = beepCtx(); if (!ctx) return;
-    [0,250,500].forEach(t=>{ const o=ctx.createOscillator(), g=ctx.createGain();
-      o.connect(g); g.connect(ctx.destination); o.frequency.value=880;
-      o.start(ctx.currentTime+t/1000); o.stop(ctx.currentTime+t/1000+0.2); });
+    const play = () => {
+      try {
+        [0,250,500].forEach(t=>{ const o=ctx.createOscillator(), g=ctx.createGain();
+          o.connect(g); g.connect(ctx.destination); o.frequency.value=880;
+          o.start(ctx.currentTime+t/1000); o.stop(ctx.currentTime+t/1000+0.2); });
+      } catch(e){}
+      // solta o foco de áudio logo após o beep: a música volta ao normal sozinha
+      setTimeout(() => { try { ctx.suspend(); } catch(e){} }, 1500);
+    };
+    if (ctx.state === 'suspended') { try { ctx.resume().then(play, play); } catch(e){ play(); } }
+    else play();
   }catch(e){}
 }
 
