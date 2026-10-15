@@ -287,3 +287,14 @@ video.note-media{max-height:340px;}
 /* v53: quadrinhos 2.0 */
 .beat-row{display:flex;align-items:center;gap:8px;margin:10px 0;font-size:14px;color:var(--muted);cursor:pointer;}
 .beat-row input{width:18px;height:18px;accent-color:#1b7cbb;}
+/* tabela de séries por linha (peso/reps por série) */
+.settable{display:flex;flex-direction:column;gap:8px;margin:8px 0 12px;}
+.setrow{display:grid;grid-template-columns:36px 1fr 1fr 52px;gap:8px;align-items:center;}
+.setrow.cols5{grid-template-columns:28px 1fr 1fr 1fr 48px;}
+.setrow.sethead{font-size:12px;color:var(--muted);font-weight:600;}
+.setrow.sethead span{text-align:left;}
+.setrow.sethead span:first-child,.setnum{text-align:center;}
+.setnum{font-weight:800;color:var(--muted);}
+.setrow input{margin:0;padding:10px 6px;font-size:15px;text-align:center;}
+.set-done{width:48px;height:44px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--muted);font-size:18px;font-weight:800;}
+.set-done.on{background:var(--ok);border-color:var(--ok);color:#fff;}
