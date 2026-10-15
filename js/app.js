@@ -775,7 +775,15 @@ function lockArtwork() {
 // --- iPhone: áudio silencioso + título do documento ---
 function iphoneLockStart() {
   try {
-    startSilentAudio();
+    if (!lockAudioEl) {
+      lockAudioEl = document.createElement('audio');
+      lockAudioEl.loop = true;
+      lockAudioEl.preload = 'auto';
+      lockAudioEl.setAttribute('playsinline', '');
+      lockAudioEl.src = 'audio/silence.mp3';
+    }
+    const p = lockAudioEl.play();
+    if (p && p.catch) p.catch(() => {});
     beepCtx(); // cria a sessão do beep já no gesto (pra ele tocar com o app minimizado)
     lockOn = true;
     lockLastTitleSec = -1;
@@ -813,31 +821,13 @@ function lockTimerStart() {
       try { navigator.mediaSession.setActionHandler('pause', () => {}); } catch (e) {}
     }
     navigator.mediaSession.playbackState = 'playing';
-    // áudio silencioso em loop: mantém a página viva com o app minimizado.
-    // Sem isso o Chrome congela os timers: os segundos travam e o beep não toca.
-    startSilentAudio();
-    beepCtx(); // cria a sessão do beep já no gesto (pra tocar minimizado)
+    // cria a sessão de áudio do beep já no gesto: sem isso o Chrome bloqueia
+    // o beep com o app minimizado. (Sem áudio em loop: não abaixa Spotify/YouTube.)
+    beepCtx();
     lockLastSec = -1;
     lockOn = true; // indicador 🔒 na pílula: modo tela de bloqueio ativo
     lockTimerPaint();
   } catch (e) {}
-}
-// áudio silencioso em loop: impede o Chrome de congelar a página em background
-function startSilentAudio() {
-  try {
-    if (!lockAudioEl) {
-      lockAudioEl = document.createElement('audio');
-      lockAudioEl.loop = true;
-      lockAudioEl.preload = 'auto';
-      lockAudioEl.setAttribute('playsinline', '');
-      lockAudioEl.src = 'audio/silence.mp3';
-    }
-    const p = lockAudioEl.play();
-    if (p && p.catch) p.catch(() => {});
-  } catch (e) {}
-}
-function stopSilentAudio() {
-  try { if (lockAudioEl) lockAudioEl.pause(); } catch (e) {}
 }
 function lockTimerPaint() {
   if (isiPhone()) { iphoneLockPaint(); return; }
@@ -855,7 +845,6 @@ function lockTimerPaint() {
   } catch (e) {}
 }
 function lockTimerCleanup() {
-  stopSilentAudio();
   try { if (lockSilentSrc) lockSilentSrc.stop(); } catch (e) {}
   lockSilentSrc = null;
   try { if (lockAC) lockAC.close(); } catch (e) {}
