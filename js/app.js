@@ -775,15 +775,7 @@ function lockArtwork() {
 // --- iPhone: áudio silencioso + título do documento ---
 function iphoneLockStart() {
   try {
-    if (!lockAudioEl) {
-      lockAudioEl = document.createElement('audio');
-      lockAudioEl.loop = true;
-      lockAudioEl.preload = 'auto';
-      lockAudioEl.setAttribute('playsinline', '');
-      lockAudioEl.src = 'audio/silence.mp3';
-    }
-    const p = lockAudioEl.play();
-    if (p && p.catch) p.catch(() => {});
+    startSilentAudio();
     beepCtx(); // cria a sessão do beep já no gesto (pra ele tocar com o app minimizado)
     lockOn = true;
     lockLastTitleSec = -1;
@@ -821,10 +813,31 @@ function lockTimerStart() {
       try { navigator.mediaSession.setActionHandler('pause', () => {}); } catch (e) {}
     }
     navigator.mediaSession.playbackState = 'playing';
+    // áudio silencioso em loop: mantém a página viva com o app minimizado.
+    // Sem isso o Chrome congela os timers: os segundos travam e o beep não toca.
+    startSilentAudio();
+    beepCtx(); // cria a sessão do beep já no gesto (pra tocar minimizado)
     lockLastSec = -1;
     lockOn = true; // indicador 🔒 na pílula: modo tela de bloqueio ativo
     lockTimerPaint();
   } catch (e) {}
+}
+// áudio silencioso em loop: impede o Chrome de congelar a página em background
+function startSilentAudio() {
+  try {
+    if (!lockAudioEl) {
+      lockAudioEl = document.createElement('audio');
+      lockAudioEl.loop = true;
+      lockAudioEl.preload = 'auto';
+      lockAudioEl.setAttribute('playsinline', '');
+      lockAudioEl.src = 'audio/silence.mp3';
+    }
+    const p = lockAudioEl.play();
+    if (p && p.catch) p.catch(() => {});
+  } catch (e) {}
+}
+function stopSilentAudio() {
+  try { if (lockAudioEl) lockAudioEl.pause(); } catch (e) {}
 }
 function lockTimerPaint() {
   if (isiPhone()) { iphoneLockPaint(); return; }
@@ -842,6 +855,7 @@ function lockTimerPaint() {
   } catch (e) {}
 }
 function lockTimerCleanup() {
+  stopSilentAudio();
   try { if (lockSilentSrc) lockSilentSrc.stop(); } catch (e) {}
   lockSilentSrc = null;
   try { if (lockAC) lockAC.close(); } catch (e) {}
@@ -1152,13 +1166,10 @@ function albumDB() {
 }
 async function albumAdd(ph) {
   const db = await albumDB();
-  const id = await new Promise((res, rej) => {
+  return new Promise((res, rej) => {
     const rq = db.transaction('photos', 'readwrite').objectStore('photos').add(Object.assign({ createdAt: Date.now() }, ph));
     rq.onsuccess = () => res(rq.result); rq.onerror = () => rej(rq.error);
   });
-  // espelha na nuvem em segundo plano (nao trava a UI se falhar)
-  if (ph.blob) albumCloudAvailable().then(ok => { if (ok) albumCloudMirror(id, ph.blob); });
-  return id;
 }
 async function albumList() {
   const db = await albumDB();
@@ -1169,76 +1180,11 @@ async function albumList() {
   });
 }
 async function albumDelete(id) {
-  // foto da nuvem vista de outro aparelho (sem copia local)
-  if (String(id).indexOf('cloud:') === 0 && await albumCloudAvailable()) {
-    const rowId = String(id).slice(6);
-    try {
-      const rows = await SB.sel('album_photos', '?id=eq.' + encodeURIComponent(rowId) + '&select=path&limit=1');
-      if (rows && rows[0]) {
-        await SB.del('album_photos', '?id=eq.' + encodeURIComponent(rowId));
-        await SB.storageRemove(rows[0].path);
-      }
-    } catch (e) {}
-    return;
-  }
   const db = await albumDB();
-  let rec = null;
-  try {
-    rec = await new Promise((res, rej) => {
-      const g = db.transaction('photos').objectStore('photos').get(id);
-      g.onsuccess = () => res(g.result); g.onerror = () => rej(g.error);
-    });
-  } catch (e) {}
-  await new Promise((res, rej) => {
+  return new Promise((res, rej) => {
     const rq = db.transaction('photos', 'readwrite').objectStore('photos').delete(id);
     rq.onsuccess = () => res(); rq.onerror = () => rej(rq.error);
   });
-  // apaga o espelho na nuvem (RLS so permite as proprias fotos)
-  if (rec && rec.cloud_path && await albumCloudAvailable()) {
-    try {
-      await SB.del('album_photos', '?path=eq.' + encodeURIComponent(rec.cloud_path));
-      await SB.storageRemove(rec.cloud_path);
-    } catch (e) {}
-  }
-}
-
-// ---------- album na nuvem (sincroniza com o par) ----------
-// Requer a tabela album_photos (supabase/album.sql). Se ela ainda nao existir,
-// todas as chamadas caem no catch e o album segue 100% local, sem quebrar.
-let _albumBackfill = false;
-let _albumView = [];
-async function albumCloudAvailable() {
-  try { return Store.mode === 'cloud' && !!(SB && SB.token) && !!Store.user; }
-  catch (e) { return false; }
-}
-async function albumCloudList() {
-  try {
-    const rows = await SB.sel('album_photos', '?select=id,user_id,path,created_at&order=created_at.desc&limit=300');
-    return rows || [];
-  } catch (e) { return []; }
-}
-async function albumCloudPut(blob) {
-  const path = 'album/' + Store.user.id + '/' + Date.now() + '_' + Store.uid() + '.jpg';
-  await SB.storageUpload(path, blob, 'image/jpeg');
-  await SB.ins('album_photos', { user_id: Store.user.id, path });
-  return path;
-}
-async function albumCloudMirror(localId, blob) {
-  try {
-    const path = await albumCloudPut(blob);
-    const db = await albumDB();
-    await new Promise((res, rej) => {
-      const tx = db.transaction('photos', 'readwrite');
-      const st = tx.objectStore('photos');
-      const g = st.get(localId);
-      g.onsuccess = () => {
-        const r = g.result; if (!r) return res();
-        r.cloud_path = path;
-        const u = st.put(r); u.onsuccess = () => res(); u.onerror = () => rej(u.error);
-      };
-      g.onerror = () => rej(g.error);
-    });
-  } catch (e) { /* sem tabela/rede: fica local */ }
 }
 function pickPhoto(cb) {
   const inp = document.createElement('input');
@@ -1351,29 +1297,19 @@ function openPhotoEditor(file, dateISO, dayLabel) {
   });
 }
 function openAlbumPhoto(id) {
-  const fromView = (_albumView || []).find(x => x.id === id);
-  const show = (p, url, revoke) => {
-    openModal(`<h3>${esc(fmtBR(p.date))}</h3>
-      <div class="sub">${esc(muscleShort(p.dayLabel))}${p.caption ? ' • ' + esc(p.caption) : ''}${p.fromPartner ? ' • 💕 do par' : ''}</div>
-      <img src="${url}" style="width:100%;border-radius:12px;display:block;margin:8px 0">
-      ${p.fromPartner ? '' : '<button class="btn danger" id="ap-del">Excluir foto</button>'}
-      <button class="btn" id="ap-x">Fechar</button>`);
-    const close = () => { if (revoke) URL.revokeObjectURL(url); closeModal(); };
-    $('#ap-x').addEventListener('click', close);
-    const del = $('#ap-del');
-    if (del) del.addEventListener('click', async () => {
-      if (!confirm('Excluir esta foto do álbum?')) return;
-      await albumDelete(id); close(); renderAlbum();
-    });
-  };
-  if (fromView && fromView.cloud_path && !fromView.blob) {
-    mediaURL(fromView.cloud_path).then(url => show(fromView, url, false)).catch(() => toast('Não deu pra carregar 😕'));
-    return;
-  }
   albumList().then(all => {
     const p = all.find(x => x.id === id); if (!p) return;
     const url = URL.createObjectURL(p.blob);
-    show(p, url, true);
+    openModal(`<h3>${esc(fmtBR(p.date))}</h3>
+      <div class="sub">${esc(muscleShort(p.dayLabel))}${p.caption ? ' • ' + esc(p.caption) : ''}</div>
+      <img src="${url}" style="width:100%;border-radius:12px;display:block;margin:8px 0">
+      <button class="btn danger" id="ap-del">Excluir foto</button>
+      <button class="btn" id="ap-x">Fechar</button>`);
+    $('#ap-x').addEventListener('click', () => { URL.revokeObjectURL(url); closeModal(); });
+    $('#ap-del').addEventListener('click', async () => {
+      if (!confirm('Excluir esta foto do álbum?')) return;
+      await albumDelete(id); URL.revokeObjectURL(url); closeModal(); renderAlbum();
+    });
   });
 }
 async function renderAlbum() {
@@ -1388,59 +1324,29 @@ async function renderAlbum() {
   $('#alb-video').addEventListener('click', makeComicVideo);
   let all = [];
   try { all = await albumList(); } catch (e) {}
-  // nuvem: backfill das locais + fotos do par
-  if (await albumCloudAvailable()) {
-    const pending = all.filter(p => p.blob && !p.cloud_path);
-    if (pending.length && !_albumBackfill) {
-      _albumBackfill = true;
-      (async () => {
-        for (const p of pending) { try { await albumCloudMirror(p.id, p.blob); } catch (e) {} }
-        _albumBackfill = false;
-      })();
-    }
-    try {
-      const rows = await albumCloudList();
-      const localPaths = new Set(all.map(p => p.cloud_path).filter(Boolean));
-      const me = String(Store.user.id);
-      const extra = rows.filter(r => r.path && !localPaths.has(r.path)).map(r => ({
-        id: 'cloud:' + r.id, cloud_path: r.path,
-        date: (r.created_at || '').slice(0, 10), dayLabel: '', caption: '',
-        fromPartner: String(r.user_id) !== me,
-        createdAt: new Date(r.created_at).getTime() || 0
-      }));
-      all = all.concat(extra).sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
-    } catch (e) {}
-  }
-  _albumView = all;
   const g = $('#alb-grid'); if (!g) return;
   if (!all.length) { g.innerHTML = '<div class="sub">Nenhuma foto ainda. Adicione a primeira! 📸</div>'; return; }
   g.innerHTML = '';
   all.forEach(p => {
     const d = document.createElement('div');
     d.className = 'album-ph';
+    const url = URL.createObjectURL(p.blob);
     const img = document.createElement('img');
-    img.loading = 'lazy';
-    let objUrl = null;
-    if (p.blob) { objUrl = URL.createObjectURL(p.blob); img.src = objUrl; }
-    else if (p.cloud_path) { img.setAttribute('data-mpath', p.cloud_path); img.alt = 'foto do par'; }
+    img.loading = 'lazy'; img.src = url;
     img.addEventListener('click', () => openAlbumPhoto(p.id));
     const cap = document.createElement('div');
     cap.className = 'cap';
-    cap.innerHTML = esc(fmtBR(p.date)) + (muscleShort(p.dayLabel) ? ' • ' + esc(muscleShort(p.dayLabel)) : '') + (p.caption ? '<br>' + esc(p.caption) : '') + (p.fromPartner ? '<br>💕 do par' : '');
-    d.appendChild(img); d.appendChild(cap);
-    if (!p.fromPartner) {
-      const del = document.createElement('button');
-      del.className = 'del'; del.textContent = '×'; del.title = 'Excluir';
-      del.addEventListener('click', async ev => {
-        ev.stopPropagation();
-        if (!confirm('Excluir esta foto do álbum?')) return;
-        await albumDelete(p.id); if (objUrl) URL.revokeObjectURL(objUrl); renderAlbum();
-      });
-      d.appendChild(del);
-    }
+    cap.innerHTML = esc(fmtBR(p.date)) + (muscleShort(p.dayLabel) ? ' • ' + esc(muscleShort(p.dayLabel)) : '') + (p.caption ? '<br>' + esc(p.caption) : '');
+    const del = document.createElement('button');
+    del.className = 'del'; del.textContent = '×'; del.title = 'Excluir';
+    del.addEventListener('click', async ev => {
+      ev.stopPropagation();
+      if (!confirm('Excluir esta foto do álbum?')) return;
+      await albumDelete(p.id); URL.revokeObjectURL(url); renderAlbum();
+    });
+    d.appendChild(img); d.appendChild(cap); d.appendChild(del);
     g.appendChild(d);
   });
-  hydrateMedia(g);
 }
 function sleepMs(ms) { return new Promise(r => setTimeout(r, ms)); }
 function fitText(ctx, txt, maxW) {
@@ -2500,7 +2406,6 @@ async function coachApplyAction(a) {
 
 /* ================= RECADOS ================= */
 function renderRecados() {
-  markNotesSeen(); // abriu pra verificar -> o banner do Hoje some
   const rmode = S.recMode || 'recados';
   const seg = `<div class="seg"><button data-rm="recados" class="${rmode === 'recados' ? 'active' : ''}">💌 Recados</button><button data-rm="mural" class="${rmode === 'mural' ? 'active' : ''}">📌 Mural</button><button data-rm="coach" class="${rmode === 'coach' ? 'active' : ''}">💬 Coach</button></div>`;
   if (rmode === 'coach') { renderCoach(seg); return; }
@@ -2715,28 +2620,9 @@ function renderRecados() {
   });
   hydrateMedia($('#recados-content'));
 }
-// controle de "recado lido": o banner do Hoje some depois que ele abre os recados
-function notesSeenKey() {
-  try { return 'korpus.notes_seen.' + (Store.user && Store.user.id || 'anon'); }
-  catch (e) { return 'korpus.notes_seen.anon'; }
-}
-function notesSeenAt() {
-  try { return localStorage.getItem(notesSeenKey()) || ''; } catch (e) { return ''; }
-}
-function markNotesSeen() {
-  try {
-    const notes = S.notes || [];
-    if (!notes.length) return;
-    const seen = notesSeenAt();
-    const max = notes.reduce((m, n) => (n.created_at && n.created_at > m ? n.created_at : m), seen);
-    if (max) localStorage.setItem(notesSeenKey(), max);
-  } catch (e) {}
-}
 // banner do ultimo recado recebido no topo do Hoje
 function noteBanner() {
-  const seen = notesSeenAt();
-  const me = String(Store.user && Store.user.id);
-  const rec = (S.notes || []).find(n => String(n.from_user_id) !== me && (!seen || (n.created_at && n.created_at > seen)));
+  const rec = (S.notes || []).find(n => String(n.from_user_id) !== String(Store.user && Store.user.id));
   if (!rec) return '';
   return `<div class="card note-banner" id="note-banner">
     <div class="note-head"><b>💌 Recado de ${esc(rec.from_name || 'seu amor')}</b><span>${esc(fmtDT(rec.created_at))}</span></div>
