@@ -2406,6 +2406,7 @@ async function coachApplyAction(a) {
 
 /* ================= RECADOS ================= */
 function renderRecados() {
+  markAllNotesSeen(); // avisos vistos: somem do banner do Hoje
   const rmode = S.recMode || 'recados';
   const seg = `<div class="seg"><button data-rm="recados" class="${rmode === 'recados' ? 'active' : ''}">💌 Recados</button><button data-rm="mural" class="${rmode === 'mural' ? 'active' : ''}">📌 Mural</button><button data-rm="coach" class="${rmode === 'coach' ? 'active' : ''}">💬 Coach</button></div>`;
   if (rmode === 'coach') { renderCoach(seg); return; }
@@ -2621,10 +2622,29 @@ function renderRecados() {
   hydrateMedia($('#recados-content'));
 }
 // banner do ultimo recado recebido no topo do Hoje
+// controle de "lido": o banner some ao fechar (✕) ou ao abrir a aba Recados
+const SEEN_KEY = 'cn_notes_seen';
+function seenNotes() {
+  try { return new Set(JSON.parse(localStorage.getItem(SEEN_KEY) || '[]')); }
+  catch (e) { return new Set(); }
+}
+function markNoteSeen(id) {
+  try {
+    const s = seenNotes(); s.add(String(id));
+    localStorage.setItem(SEEN_KEY, JSON.stringify([...s].slice(-200)));
+  } catch (e) {}
+}
+function markAllNotesSeen() {
+  const myId = String(Store.user && Store.user.id);
+  (S.notes || []).forEach(n => { if (String(n.from_user_id) !== myId) markNoteSeen(n.id); });
+}
 function noteBanner() {
-  const rec = (S.notes || []).find(n => String(n.from_user_id) !== String(Store.user && Store.user.id));
+  const seen = seenNotes();
+  const myId = String(Store.user && Store.user.id);
+  const rec = (S.notes || []).find(n => String(n.from_user_id) !== myId && !seen.has(String(n.id)));
   if (!rec) return '';
   return `<div class="card note-banner" id="note-banner">
+    <button class="note-x" id="note-dismiss" title="Fechar">✕</button>
     <div class="note-head"><b>💌 Recado de ${esc(rec.from_name || 'seu amor')}</b><span>${esc(fmtDT(rec.created_at))}</span></div>
     <div class="note-msg">${esc(rec.message)}</div>
     <button class="btn small" id="note-goto">Ver todos 💕</button>
@@ -2633,6 +2653,14 @@ function noteBanner() {
 function wireNoteBanner() {
   const g = $('#note-goto');
   if (g) g.addEventListener('click', () => { showScreen('recados'); renderRecados(); });
+  const x = $('#note-dismiss');
+  if (x) x.addEventListener('click', () => {
+    const seen = seenNotes();
+    const myId = String(Store.user && Store.user.id);
+    const rec = (S.notes || []).find(n => String(n.from_user_id) !== myId && !seen.has(String(n.id)));
+    if (rec) markNoteSeen(rec.id);
+    renderHoje();
+  });
 }
 
 /* ---------- check-in na academia ---------- */
