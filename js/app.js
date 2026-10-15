@@ -1023,10 +1023,10 @@ function shareCardCanvas(o) {
   const W = 1080, H = 1350, cv = document.createElement('canvas');
   cv.width = W; cv.height = H;
   const x = cv.getContext('2d');
+  // ---- fundo ----
   const g = x.createLinearGradient(0, 0, W, H);
   g.addColorStop(0, '#0b2a4a'); g.addColorStop(1, '#1b5c9e');
   x.fillStyle = g; x.fillRect(0, 0, W, H);
-  // brilhos decorativos
   const rg = x.createRadialGradient(W/2, 260, 40, W/2, 260, 520);
   rg.addColorStop(0, 'rgba(159,208,245,.28)'); rg.addColorStop(1, 'rgba(159,208,245,0)');
   x.fillStyle = rg; x.fillRect(0, 0, W, H);
@@ -1034,70 +1034,86 @@ function shareCardCanvas(o) {
   rg2.addColorStop(0, 'rgba(20,120,200,.22)'); rg2.addColorStop(1, 'rgba(20,120,200,0)');
   x.fillStyle = rg2; x.fillRect(0, 0, W, H);
   x.textAlign = 'center';
-  x.fillStyle = '#9fd0f5'; x.font = '700 36px system-ui, sans-serif';
-  x.fillText('C A S A L  N A V Y', W/2, 88);
-  x.fillStyle = '#ffffff'; x.font = '800 88px system-ui, sans-serif';
-  x.fillText('TREINO PAGO', W/2, 190);
-  x.font = '84px system-ui, sans-serif'; x.fillText('💪', W/2, 296);
-  x.fillStyle = '#cfe7fa'; x.font = '500 38px system-ui, sans-serif';
-  x.fillText(fmtBR(o.log_date) + '  •  ' + String(o.day_label || '').split(' — ')[0], W/2, 364);
-  // 4 stats em grade 2x2
+  // texto centralizado que encolhe a fonte até caber na largura — nada estoura o balão
+  function fitText(text, cx, y, maxW, base, weight) {
+    let size = base;
+    x.font = weight + ' ' + size + 'px system-ui, sans-serif';
+    while (x.measureText(text).width > maxW && size > 24) {
+      size -= 2;
+      x.font = weight + ' ' + size + 'px system-ui, sans-serif';
+    }
+    x.fillText(text, cx, y);
+  }
+  // ---- cabeçalho ----
+  x.fillStyle = '#9fd0f5';
+  fitText('C A S A L  N A V Y', W/2, 88, W - 160, 36, '700');
+  x.fillStyle = '#ffffff';
+  fitText('TREINO PAGO', W/2, 196, W - 120, 88, '800');
+  x.font = '84px system-ui, sans-serif'; x.fillText('\uD83D\uDCAA', W/2, 300);
+  x.fillStyle = '#cfe7fa';
+  fitText(fmtBR(o.log_date) + '  \u2022  ' + String(o.day_label || '').split(' \u2014 ')[0], W/2, 368, W - 160, 38, '500');
+  // ---- 4 stats em grade 2x2 ----
   const stats = [
-    [(+o.volume_lbs || 0).toLocaleString('pt-BR'), 'volume (lbs)', '🏋️'],
-    [fmtDur(o.duration_min), 'duração', '⏱️'],
-    [String(o.exercises_count || 0), 'exercícios', '📋'],
-    [String(o.streak || 0), 'dias seguidos', '🔥'],
+    [(+o.volume_lbs || 0).toLocaleString('pt-BR'), 'volume (lbs)', '\uD83C\uDFCB\uFE0F'],
+    [fmtDur(o.duration_min), 'dura\u00E7\u00E3o', '\u23F1\uFE0F'],
+    [String(o.exercises_count || 0), 'exerc\u00EDcios', '\uD83D\uDCCB'],
+    [String(o.streak || 0), 'dias seguidos', '\uD83D\uDD25'],
   ];
-  const bw = 440, bh = 160, gx = (W - bw * 2 - 36) / 2, gy = 404;
+  const bw = 440, bh = 160, gx = (W - bw * 2 - 36) / 2, gy = 408;
   stats.forEach(([v, l, ic], k) => {
     const bx = gx + (k % 2) * (bw + 36), by = gy + Math.floor(k / 2) * (bh + 28);
     x.fillStyle = 'rgba(255,255,255,.12)';
     x.beginPath(); x.roundRect(bx, by, bw, bh, 26); x.fill();
-    x.fillStyle = '#ffffff'; x.font = '800 54px system-ui, sans-serif';
-    x.fillText(ic + ' ' + v, bx + bw / 2, by + 82);
-    x.fillStyle = '#9fd0f5'; x.font = '500 32px system-ui, sans-serif';
-    x.fillText(l, bx + bw / 2, by + 128);
+    x.fillStyle = '#ffffff';
+    fitText(ic + ' ' + v, bx + bw / 2, by + 84, bw - 48, 54, '800');
+    x.fillStyle = '#9fd0f5';
+    fitText(l, bx + bw / 2, by + 130, bw - 48, 32, '500');
   });
-  // destaques: top 3 exercícios por volume
-  const tops = ((o.entries || []).map(e => ({ e, v: entryVolume(e) }))
-    .filter(t => t.v > 0).sort((a, b) => b.v - a.v).slice(0, 3));
-  let y = gy + 2 * (bh + 28) + 32;
+  let y = gy + 2 * (bh + 28) + 36;
+  // ---- kcal ----
   if (+o.kcal > 0) {
+    const kh = 104;
     x.fillStyle = 'rgba(255,255,255,.12)';
-    x.beginPath(); x.roundRect(gx, y - 56, bw * 2 + 36, 92, 24); x.fill();
-    x.fillStyle = '#ffffff'; x.font = '800 50px system-ui, sans-serif';
-    x.fillText('🔥 ~' + (+o.kcal).toLocaleString('pt-BR') + ' kcal', W / 2, y + 8);
-    x.fillStyle = '#9fd0f5'; x.font = '500 28px system-ui, sans-serif';
-    x.fillText('estimativa do treino', W / 2, y + 46);
-    y += 108;
+    x.beginPath(); x.roundRect(gx, y, bw * 2 + 36, kh, 24); x.fill();
+    x.fillStyle = '#ffffff';
+    fitText('\uD83D\uDD25 ~' + (+o.kcal).toLocaleString('pt-BR') + ' kcal', W/2, y + 62, W - 240, 50, '800');
+    y += kh + 28;
   }
+  // ---- destaques em balões (só quantos couberem antes do rodapé) ----
+  const FOOT = H - 176;
+  let tops = ((o.entries || []).map(e => ({ e, v: entryVolume(e) }))
+    .filter(t => t.v > 0).sort((a, b) => b.v - a.v));
+  const boxH = 148, gap = 18, titleH = 64, fullW = bw * 2 + 36;
+  while (tops.length > 3) tops.pop();
+  while (tops.length && y + titleH + tops.length * (boxH + gap) - gap > FOOT) tops.pop();
   if (tops.length) {
-    x.fillStyle = '#9fd0f5'; x.font = '700 30px system-ui, sans-serif';
-    x.fillText('D E S T A Q U E S  D O  T R E I N O', W/2, y);
+    x.fillStyle = '#9fd0f5';
+    fitText('D E S T A Q U E S   D O   T R E I N O', W/2, y + 40, W - 200, 30, '700');
+    y += titleH;
     tops.forEach(t => {
-      y += 68;
-      const name = String(t.e.name || 'Exercício');
-      const nm = name.length > 34 ? name.slice(0, 33) + '…' : name;
+      x.fillStyle = 'rgba(255,255,255,.10)';
+      x.beginPath(); x.roundRect(gx, y, fullW, boxH, 24); x.fill();
+      let name = String(t.e.name || 'Exerc\u00EDcio');
+      if (name.length > 40) name = name.slice(0, 39) + '\u2026';
+      x.fillStyle = '#ffffff';
+      fitText('\uD83C\uDFC5 ' + name, W/2, y + 64, fullW - 96, 40, '700');
       const sets = t.e.doneSets > 0 ? t.e.doneSets : (parseInt(t.e.sets, 10) || 0);
-      const det = (sets + '× ' + (t.e.reps || '') + (t.e.weight ? '  •  ' + t.e.weight + ' lbs' : '')).trim();
-      x.fillStyle = '#ffffff'; x.font = '700 38px system-ui, sans-serif';
-      x.fillText('🏅 ' + nm, W/2, y);
-      x.fillStyle = '#9fd0f5'; x.font = '500 32px system-ui, sans-serif';
-      x.fillText(det, W/2, y + 42);
-      y += 42;
+      const det = (sets + '\u00D7 ' + (t.e.reps || '') + (t.e.weight ? '  \u2022  ' + t.e.weight + ' lbs' : '')).trim();
+      x.fillStyle = '#9fd0f5';
+      fitText(det, W/2, y + 112, fullW - 96, 30, '500');
+      y += boxH + gap;
     });
-    y += 60;
   }
-  // frase de efeito
+  // ---- rodapé ancorado (nunca sobrepõe o conteúdo) ----
   const streak = +o.streak || 0;
-  const frases = ['Consistência vence motivação 💪', 'Feito é melhor que perfeito 🔥', 'O shape agradece 🏋️', 'Amanhã tem mais 😤'];
-  const frase = streak >= 5 ? '🔥 ' + streak + ' dias seguidos — sequência insana!'
-    : streak >= 3 ? '🔥 ' + streak + ' dias seguidos — mantém o ritmo!'
+  const frases = ['Consist\u00EAncia vence motiva\u00E7\u00E3o \uD83D\uDCAA', 'Feito \u00E9 melhor que perfeito \uD83D\uDD25', 'O shape agradece \uD83C\uDFCB\uFE0F', 'Amanh\u00E3 tem mais \uD83D\uDE24'];
+  const frase = streak >= 5 ? '\uD83D\uDD25 ' + streak + ' dias seguidos \u2014 sequ\u00EAncia insana!'
+    : streak >= 3 ? '\uD83D\uDD25 ' + streak + ' dias seguidos \u2014 mant\u00E9m o ritmo!'
     : frases[(new Date().getDate() + streak) % frases.length];
-  x.fillStyle = '#ffd76a'; x.font = '700 36px system-ui, sans-serif';
-  x.fillText(frase, W/2, Math.max(y, H - 170));
-  x.fillStyle = '#9fd0f5'; x.font = '500 34px system-ui, sans-serif';
-  x.fillText('Feito no Casal Navy 🏋️', W/2, H - 70);
+  x.fillStyle = '#ffd76a';
+  fitText(frase, W/2, H - 104, W - 160, 36, '700');
+  x.fillStyle = '#9fd0f5';
+  fitText('Feito no Casal Navy \uD83C\uDFCB\uFE0F', W/2, H - 48, W - 160, 32, '500');
   return cv;
 }
 async function dlFile(f) {
