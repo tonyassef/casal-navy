@@ -91,6 +91,14 @@ const Store = {
           await SB.getUser();
         }
         if (!SB.user) throw new Error('sessao expirada');
+        // o perfil pode ter sido removido no servidor — sem perfil, força novo login
+        try {
+          const pr = await SB.sel('profiles', '?id=eq.' + SB.user.id + '&select=id&limit=1');
+          if (!pr || !pr.length) throw new Error('perfil removido');
+        } catch (pe) {
+          if (netErr(pe)) return enterCached();
+          throw new Error('perfil removido');
+        }
         this.user = { id: sess.userId, name: sess.name, email: sess.email };
         this._persistSession();
         this._rememberSession();
