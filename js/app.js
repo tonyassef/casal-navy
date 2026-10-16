@@ -341,7 +341,7 @@ function renderHoje() {
       <div class="num">${done ? '✓' : (i+1)}</div>
       <div class="info"><b>${esc(st && st.variant === 'B' && ex.nameB ? ex.nameB : ex.nameA)}</b>
       <small>${esc(ex.sets||'')}× ${esc(ex.reps||'')} • ${esc(ex.technique||'')}</small></div>
-      ${w?`<div class="w">${w}</div>`:''}<button class="yt-btn" data-yt="${i}" data-v="${st && st.variant === 'B' && ex.nameB ? 'B' : 'A'}" title="Ver vídeo no YouTube">▶️</button><div class="chev">›</div></div>`;
+      ${w?`<div class="w">${w}</div>`:''}${ex.custom_video?'<span title="Você tem um vídeo próprio neste exercício">📹</span>':''}<button class="yt-btn" data-yt="${i}" data-v="${st && st.variant === 'B' && ex.nameB ? 'B' : 'A'}" title="Ver vídeo no YouTube">▶️</button><div class="chev">›</div></div>`;
   });
 
   // finalização: cardio + abs + esforço (RPE) — fica antes do botão concluir
@@ -563,6 +563,16 @@ function openExercise(i) {
     <h3>${esc(name)}${partner ? ' <small style="color:var(--muted)">+ super-set</small>' : ''}</h3>
     <div class="sub">${esc(S.plan.days[S.todayIdx].muscle || '')}</div>
     <button class="btn" id="m-yt">▶️ Ver vídeo do exercício</button>
+    <div class="card" style="margin:8px 0"><h4 style="margin:0 0 6px">📹 Meu vídeo</h4>
+      <div id="m-myvideo"></div>
+      <div class="row2">
+        <button class="btn" id="m-record">🎥 Gravar agora</button>
+        <button class="btn" id="m-upload">📁 Enviar vídeo</button>
+      </div>
+      <input type="file" id="m-videofile" accept="video/*" style="display:none">
+      <input type="file" id="m-videocam" accept="video/*" capture="user" style="display:none">
+      <div class="sub" id="m-videostatus"></div>
+    </div>
     ${ex.nameB ? `<div class="ab-toggle">
       <button class="${st.variant==='A'?'active':''}" data-v="A">Plano A<br><small>${esc(ex.nameA)}</small></button>
       <button class="${st.variant==='B'?'active':''}" data-v="B">Plano B<br><small>${esc(ex.nameB)}</small></button>
@@ -595,6 +605,46 @@ function openExercise(i) {
     st.variant = b.dataset.v; S.draft.entries[i] = st; saveDraft(); openExercise(i);
   }));
   $('#m-yt').addEventListener('click', () => window.open(ytUrlFor(ex, st.variant), '_blank'));
+  // ---- vídeo próprio do exercício ----
+  const mvBox = $('#m-myvideo'), mvStatus = $('#m-videostatus');
+  const paintMyVideo = () => {
+    if (!mvBox) return;
+    mvBox.innerHTML = ex.custom_video
+      ? `<video src="${esc(ex.custom_video)}" controls playsinline style="width:100%;border-radius:10px;max-height:280px;background:#000"></video>
+         <button class="btn" id="m-videorm" style="margin-top:6px">🗑️ Remover meu vídeo</button>`
+      : `<div class="sub">Nenhum vídeo seu ainda — grave sua execução pra conferir a forma 💪</div>`;
+    const rm = $('#m-videorm');
+    if (rm) rm.addEventListener('click', async () => {
+      if (!confirm('Remover seu vídeo deste exercício?')) return;
+      ex.custom_video = '';
+      try { await Store.savePlan(S.plan); } catch (e) {}
+      paintMyVideo(); toast('Vídeo removido ✓');
+    });
+  };
+  paintMyVideo();
+  const handleVideoFile = async (file) => {
+    if (!file) return;
+    if (!file.type.startsWith('video/')) { toast('Escolha um arquivo de vídeo 🎥'); return; }
+    if (file.size > 200 * 1024 * 1024) { toast('Vídeo muito grande (máx 200MB) ⚠️'); return; }
+    if (mvStatus) mvStatus.textContent = 'Enviando vídeo... ⏳';
+    try {
+      const ext = (file.name.split('.').pop() || 'mp4').toLowerCase().slice(0, 4);
+      const path = Store.user.id + '/' + Date.now() + '.' + ext;
+      await SB.storageUploadTo('exercise-videos', path, file, file.type);
+      ex.custom_video = SB.storagePublicUrl('exercise-videos', path);
+      await Store.savePlan(S.plan);
+      paintMyVideo();
+      if (mvStatus) mvStatus.textContent = '';
+      toast('Seu vídeo foi salvo! 📹✓');
+    } catch (e) {
+      if (mvStatus) mvStatus.textContent = '';
+      toast('Erro ao enviar: ' + (e.message || e));
+    }
+  };
+  $('#m-record').addEventListener('click', () => $('#m-videocam').click());
+  $('#m-upload').addEventListener('click', () => $('#m-videofile').click());
+  $('#m-videocam').addEventListener('change', e => handleVideoFile(e.target.files[0]));
+  $('#m-videofile').addEventListener('change', e => handleVideoFile(e.target.files[0]));
   $('#m-sets').addEventListener('change', e => {
     st.sets = e.target.value;
     const n = Math.max(1, parseInt(st.sets, 10) || 3);
@@ -2196,7 +2246,7 @@ function renderPlano() {
       d.exercises.forEach((ex, ei) => {
         h += `<div class="kv"><span><b>${esc(ex.nameA)}</b><br>
           <small style="color:var(--muted)">B: ${esc(ex.nameB||'—')} • ${esc(ex.sets||'')}× ${esc(ex.reps||'')} • ${esc(ex.technique||'')}</small></span>
-          <button class="yt-btn" data-ytday="${di}" data-ytex="${ei}" title="Ver vídeo no YouTube">▶️</button></div>`;
+          <button class="yt-btn" data-ytday="${di}" data-ytex="${ei}" title="Ver vídeo no YouTube">▶️</button>${ex.custom_video?'<span title="Você tem um vídeo próprio">📹</span>':''}</div>`;
       });
     });
     h += `</div><div class="sub" style="text-align:center">O plano pode ser atualizado a qualquer momento — ex: a cada 3 meses. Toque em Editar.</div>`;
