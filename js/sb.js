@@ -94,7 +94,10 @@ const SB = {
   ins(table, row) { return this._rest('POST', table, '', row); },
   // ---------- Storage: mídia dos recados (bucket privado recado-media) ----------
   async storageUpload(path, blob, contentType) {
-    const r = await fetch(this.url + '/storage/v1/object/recado-media/' + path, {
+    return this.storageUploadTo('recado-media', path, blob, contentType);
+  },
+  async storageUploadTo(bucket, path, blob, contentType) {
+    const r = await fetch(this.url + '/storage/v1/object/' + bucket + '/' + path, {
       method: 'POST',
       headers: {
         'apikey': this.key,
@@ -106,6 +109,9 @@ const SB = {
     const data = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(data.message || data.error || ('HTTP ' + r.status));
     return data;
+  },
+  storagePublicUrl(bucket, path) {
+    return this.url + '/storage/v1/object/public/' + bucket + '/' + path;
   },
   async storageDownload(path) {
     const r = await fetch(this.url + '/storage/v1/object/recado-media/' + path, {
