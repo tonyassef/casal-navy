@@ -78,7 +78,7 @@ const Store = {
       };
       const enterCached = () => {
         // falha de rede: entra com os dados em cache em vez de deslogar; sincroniza depois
-        this.user = { id: sess.userId, name: sess.name, email: sess.email };
+        this.user = { id: sess.userId, name: sess.name, username: sess.username || null, email: sess.email };
         return true;
       };
       try {
