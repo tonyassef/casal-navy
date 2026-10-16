@@ -881,7 +881,10 @@ function lockTimerStart() {
       try { navigator.mediaSession.setActionHandler('play', () => {}); } catch (e) {}
       try { navigator.mediaSession.setActionHandler('pause', () => {}); } catch (e) {}
     }
-    navigator.mediaSession.playbackState = 'playing';
+    // 'paused' (não 'playing'): a notificação/tela de bloqueio mostra o timer,
+    // mas o Android NÃO trata o app como player ativo — o Spotify/YouTube
+    // continua tocando. Com 'playing', o sistema pausa a música alheia.
+    navigator.mediaSession.playbackState = 'paused';
     // cria a sessão de áudio do beep já no gesto: sem isso o Chrome bloqueia
     // o beep com o app minimizado. (Sem áudio em loop: não abaixa Spotify/YouTube.)
     beepCtx();
