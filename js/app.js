@@ -2890,6 +2890,10 @@ function renderConta() {
 
   h += `<div class="card"><h3>💞 Pareamento</h3><div class="sub" id="c-pairinfo">Verificando... ⏳</div></div>`;
 
+  h += `<div class="card"><h3>🔄 Sincronizar</h3>
+    <div class="sub">Baixa seus dados da nuvem de novo (treinos, recados, check-ins).</div>
+    <button class="btn primary" id="c-syncnow">Sincronizar agora 🔄</button></div>`;
+
   h += `<div class="card"><h3>👥 Convidar amigo</h3>
     <div class="sub">Ele recebe um link no e-mail e entra direto — com conta própria, plano próprio e <b>sem acesso aos seus dados</b> nem aos da Eliza.</div>
     <label class="lbl">E-mail do amigo</label>
@@ -3011,6 +3015,21 @@ function renderConta() {
     el.innerHTML = p
       ? `Emparelhado com <b>${esc(p.partner_name || 'parceiro(a)')}</b> 💞<div class="sub" style="margin:4px 0 0">Vocês veem o Duelo e os check-ins um do outro. Amigos sem pareamento não veem nada de vocês.</div>`
       : `Sem pareamento — só você vê seus dados. 💪`;
+  });
+  const csync = $('#c-syncnow');
+  if (csync) csync.addEventListener('click', async () => {
+    toast('Sincronizando... ⏳');
+    try {
+      S.plan = await Store.getPlan();
+      S.logs = await Store.getLogs();
+      S.meta = await Store.getMeta();
+      S.notes = await Store.getNotes();
+      S.checkins = await Store.getCheckins();
+      S.reactions = await Store.getReactions();
+      S.summaries = await Store.getSummaries();
+      renderHoje(); renderHistorico(); renderPlano(); renderConta(); renderCalendario(); renderRecados(); renderDesafios(); renderAlbum();
+      savedToast('Sincronizado! ☁️✓');
+    } catch (e) { toast('Erro: ' + (e.message || e)); }
   });
   $('#c-expjson').addEventListener('click', async () => {
     const data = { app: 'casal-navy', user: Store.user.name, exported_at: new Date().toISOString(),
