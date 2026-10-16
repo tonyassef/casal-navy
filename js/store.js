@@ -527,19 +527,40 @@ const Store = {
     const d = this._data(); d.plan = plan; this._saveData(d);
   },
 
+  // Migração: treinos salvos antes do formato "séries por linha" não têm setRows.
+  // Reconstrói as séries a partir de weight/doneSets/reps para o histórico e o
+  // preenchimento automático voltarem a mostrar os pesos antigos.
+  _migrateEntryRows(e) {
+    if (!e || e.kind || (e.setRows && e.setRows.length)) return e;
+    if (!e.weight && !e.partnerWeight && !(e.doneSets > 0)) return e;
+    const n = Math.max(1, e.doneSets > 0 ? e.doneSets : (parseInt(e.sets, 10) || 3));
+    const rows = [];
+    for (let k = 0; k < n; k++) rows.push({ w: e.weight || '', w2: e.partnerWeight || '', r: e.reps || '', done: e.doneSets > 0 });
+    e.setRows = rows;
+    return e;
+  },
+  _migrateLogRows(log) {
+    try { (log.entries || []).forEach(e => this._migrateEntryRows(e)); } catch (e) {}
+    return log;
+  },
   async getLogs() {
     if (this.mode === 'cloud') {
       try {
         const rows = await SB.sel('workout_logs', '?user_id=eq.' + this.user.id + '&select=id,log_date,day_label,entries,notes,created_at&order=log_date.desc,created_at.desc&limit=2000');
+        rows.forEach(l => this._migrateLogRows(l));
         this._setCache(Object.assign(this._cache() || {}, { logs: rows }));
         return rows;
       } catch (e) {
         if (!this._queueable(e)) throw e;
         const c = this._cache();
-        return ((c && c.logs) || []).slice().sort((a, b) => (b.log_date || '').localeCompare(a.log_date || ''));
+        const logs = ((c && c.logs) || []).slice();
+        logs.forEach(l => this._migrateLogRows(l));
+        return logs.sort((a, b) => (b.log_date || '').localeCompare(a.log_date || ''));
       }
     }
-    return (this._data().logs || []).slice().sort((a, b) => (b.log_date || '').localeCompare(a.log_date || ''));
+    const logs = (this._data().logs || []).slice();
+    logs.forEach(l => this._migrateLogRows(l));
+    return logs.sort((a, b) => (b.log_date || '').localeCompare(a.log_date || ''));
   },
 
   async saveLog(log) {
