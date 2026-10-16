@@ -634,8 +634,13 @@ const Store = {
     if (this.mode === 'cloud') {
       try {
         const r = await SB.sel('workout_summaries', '?select=user_id,user_name,log_date,day_label,volume_lbs,duration_min,exercises_count&order=log_date.desc&limit=500');
+        const c = this._cache() || {}; c.summaries = r || []; this._setCache(c);
         return r || [];
-      } catch (e) { return []; }
+      } catch (e) {
+        const c = this._cache();
+        if (c && c.summaries) return c.summaries;
+        return [];
+      }
     }
     return (this._data().summaries || []).slice().sort((a, b) => (b.log_date || '').localeCompare(a.log_date || ''));
   },
@@ -695,8 +700,13 @@ const Store = {
     if (this.mode === 'cloud') {
       try {
         const r = await SB.sel('couple_notes', '?select=*&order=created_at.desc&limit=60');
+        const c = this._cache() || {}; c.notes = r || []; this._setCache(c);
         return r || [];
-      } catch (e) { return []; }
+      } catch (e) {
+        const c = this._cache();
+        if (c && c.notes) return c.notes;
+        return [];
+      }
     }
     return this._ls('notes.' + this.user.id) || [];
   },
@@ -750,8 +760,13 @@ const Store = {
     if (this.mode === 'cloud') {
       try {
         const r = await SB.sel('note_reactions', '?select=*&order=created_at.asc&limit=500');
+        const c = this._cache() || {}; c.reactions = r || []; this._setCache(c);
         return r || [];
-      } catch (e) { return []; }
+      } catch (e) {
+        const c = this._cache();
+        if (c && c.reactions) return c.reactions;
+        return [];
+      }
     }
     return this._ls('reactions.' + this.user.id) || [];
   },
@@ -786,8 +801,13 @@ const Store = {
     if (this.mode === 'cloud') {
       try {
         const r = await SB.sel('gym_checkins', '?select=*&order=created_at.desc&limit=60');
+        const c = this._cache() || {}; c.checkins = r || []; this._setCache(c);
         return r || [];
-      } catch (e) { return []; }
+      } catch (e) {
+        const c = this._cache();
+        if (c && c.checkins) return c.checkins;
+        return [];
+      }
     }
     return this._ls('checkins.' + this.user.id) || [];
   },
