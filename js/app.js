@@ -260,7 +260,7 @@ function rotationBase() {
     const tl22 = (S.logs || []).find(l => String(l.log_date) === '2026-09-22' && dayIdxFromLabel(l.day_label) >= 0);
     if (tl22) bi = norm(dayIdxFromLabel(tl22.day_label));
     else {
-      const di = (S.plan.days || []).findIndex(d => /plano\s*d\b/i.test(d.name || ''));
+      const di = (S.plan.days || []).findIndex(d => /plano\s*d\b/i.test((d.day || d.name || '')));
       if (di >= 0) bi = di;
       else if (typeof S.meta.rotation_index === 'number') bi = norm(S.meta.rotation_index);
     }
