@@ -104,7 +104,8 @@ const Store = {
         this._rememberSession();
         return true;
       } catch (e) {
-        if (netErr(e) && sess.userId) return enterCached();
+        // sessão expirada ou refresh falhou: entra com cache em vez de deslogar
+        if (sess.userId) return enterCached();
         const r = await this.signOut();
         return r === 'switched';
       }
