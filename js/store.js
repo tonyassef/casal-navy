@@ -30,6 +30,11 @@ const Store = {
   },
   uid() { return 'u' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8); },
 
+  // deadline curto pras chamadas do boot: passou disso, entra com o cache
+  _withTimeout(p, ms) {
+    return Promise.race([p, new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+  },
+
   // ---------- sessao ----------
   async boot() {
     const cfg = this._ls('sbconfig') || DEFAULT_SB;
@@ -81,19 +86,30 @@ const Store = {
         this.user = { id: sess.userId, name: sess.name, username: sess.username || null, email: sess.email };
         return true;
       };
+      // aparelho sabidamente offline: nem encosta na rede — entra com o cache
+      // local na hora e sincroniza quando a internet voltar
+      if (typeof navigator !== 'undefined' && navigator.onLine === false) return enterCached();
       try {
         // valida o token atual; se vencido tenta renovar; falha de rede nao desloga
-        try { await SB.getUser(); }
+        try { await this._withTimeout(SB.getUser(), 5000); }
         catch (e) {
           if (netErr(e)) return enterCached();
-          const ok = await SB.refresh().catch(() => false);
-          if (!ok) throw new Error('sessao expirada');
-          await SB.getUser();
+          const st = await this._withTimeout(SB.refreshWithStatus(), 5000).catch(() => 'error');
+          if (st === 'invalid') {
+            // sessão MORTA (o servidor recusou o refresh token). Entrar com
+            // cache aqui criava a "sessão zumbi": app aparentemente logado,
+            // mas as chamadas de nuvem falhavam e o login ficava pendurado.
+            // Desloga e manda pro login — sessão nova resolve.
+            const r = await this.signOut();
+            return r === 'switched';
+          }
+          if (st !== 'ok') return enterCached(); // rede/servidor instável: não desloga
+          await this._withTimeout(SB.getUser(), 5000);
         }
         if (!SB.user) throw new Error('sessao expirada');
         // o perfil pode ter sido removido no servidor — sem perfil, força novo login
         try {
-          const pr = await SB.sel('profiles', '?id=eq.' + SB.user.id + '&select=id&limit=1');
+          const pr = await this._withTimeout(SB.sel('profiles', '?id=eq.' + SB.user.id + '&select=id&limit=1'), 5000);
           if (!pr || !pr.length) throw new Error('perfil removido');
         } catch (pe) {
           if (netErr(pe)) return enterCached();

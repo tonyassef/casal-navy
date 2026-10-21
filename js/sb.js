@@ -6,6 +6,17 @@ const DEFAULT_SB = {
   url: 'https://rbumnmyeahjtjxeyrnry.supabase.co',
   key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJidW1ubXllYWhqdGp4ZXlybnJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwNDc2ODAsImV4cCI6MjEwNTYyMzY4MH0.Zm-UJKt2Lpqgb6-xevMKCO47qBijGKQ2TXBr69dtIQM',
 };
+// Timeout duro em TODA chamada de rede: sem isso, rede "zumbi" (sinal fraco,
+// portal cativo, DNS morto) pendura o fetch por minutos e o app nem abre nem
+// salva. Com o abort, o erro vira "abort/timeout" e as camadas de cima caem
+// pro cache local/fila offline como ja fazem com qualquer erro de rede.
+const SB_TIMEOUT_MS = 8000;
+async function fetchT(url, opts, ms) {
+  const ctrl = new AbortController();
+  const t = setTimeout(() => ctrl.abort(), ms || SB_TIMEOUT_MS);
+  try { return await fetch(url, Object.assign({}, opts, { signal: ctrl.signal })); }
+  finally { clearTimeout(t); }
+}
 const SB = {
   url: null, key: null, token: null, refreshToken: null, user: null,
 
@@ -19,7 +30,7 @@ const SB = {
   async _auth(path, body, authed) {
     const headers = { 'apikey': this.key, 'Content-Type': 'application/json' };
     if (authed && this.token) headers['Authorization'] = 'Bearer ' + this.token;
-    const r = await fetch(this.url + '/auth/v1' + path, {
+    const r = await fetchT(this.url + '/auth/v1' + path, {
       method: 'POST', headers, body: body ? JSON.stringify(body) : undefined,
     });
     const data = await r.json().catch(() => ({}));
@@ -56,21 +67,33 @@ const SB = {
     this.user = data.user || null;
   },
   async getUser() {
-    const r = await fetch(this.url + '/auth/v1/user', {
+    const r = await fetchT(this.url + '/auth/v1/user', {
       headers: { 'apikey': this.key, 'Authorization': 'Bearer ' + this.token },
     });
     if (!r.ok) throw new Error('sessao invalida');
     this.user = await r.json();
     return this.user;
   },
-  async refresh() {
-    if (!this.refreshToken) return false;
+  // 'ok' = renovou; 'invalid' = o servidor RECUSOU o refresh token (sessão
+  // morta: token rotacionado por outro login ou expirado — só login novo
+  // resolve); 'error' = rede/servidor instável (não dá pra concluir nada —
+  // nunca deslogar por isso).
+  async refreshWithStatus() {
+    if (!this.refreshToken) return 'invalid';
+    let r;
     try {
-      const data = await this._auth('/token?grant_type=refresh_token', { refresh_token: this.refreshToken });
-      this._setSession(data);
-      return true;
-    } catch (e) { return false; }
+      r = await fetchT(this.url + '/auth/v1/token?grant_type=refresh_token', {
+        method: 'POST',
+        headers: { 'apikey': this.key, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: this.refreshToken }),
+      });
+    } catch (e) { return 'error'; }
+    const data = await r.json().catch(() => ({}));
+    if (r.ok && data.access_token) { this._setSession(data); return 'ok'; }
+    if (r.status === 400 || r.status === 401 || r.status === 403) return 'invalid';
+    return 'error';
   },
+  async refresh() { return (await this.refreshWithStatus()) === 'ok'; },
 
   // ---- PostgREST ----
   async _rest(method, table, query, body, prefer) {
@@ -81,7 +104,7 @@ const SB = {
       'Prefer': prefer || (method === 'POST' ? 'return=representation' : undefined),
     };
     Object.keys(headers).forEach(k => headers[k] === undefined && delete headers[k]);
-    const r = await fetch(this.url + '/rest/v1/' + table + (query || ''), {
+    const r = await fetchT(this.url + '/rest/v1/' + table + (query || ''), {
       method, headers, body: body ? JSON.stringify(body) : undefined,
     });
     if (r.status === 401 && await this.refresh()) return this._rest(method, table, query, body);
@@ -97,7 +120,7 @@ const SB = {
     return this.storageUploadTo('recado-media', path, blob, contentType);
   },
   async storageUploadTo(bucket, path, blob, contentType) {
-    const r = await fetch(this.url + '/storage/v1/object/' + bucket + '/' + path, {
+    const r = await fetchT(this.url + '/storage/v1/object/' + bucket + '/' + path, {
       method: 'POST',
       headers: {
         'apikey': this.key,
@@ -114,14 +137,14 @@ const SB = {
     return this.url + '/storage/v1/object/public/' + bucket + '/' + path;
   },
   async storageDownload(path) {
-    const r = await fetch(this.url + '/storage/v1/object/recado-media/' + path, {
+    const r = await fetchT(this.url + '/storage/v1/object/recado-media/' + path, {
       headers: { 'apikey': this.key, 'Authorization': 'Bearer ' + this.token },
     });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return await r.blob();
   },
   async storageRemove(path) {
-    const r = await fetch(this.url + '/storage/v1/object/recado-media/' + path, {
+    const r = await fetchT(this.url + '/storage/v1/object/recado-media/' + path, {
       method: 'DELETE',
       headers: { 'apikey': this.key, 'Authorization': 'Bearer ' + this.token },
     });
