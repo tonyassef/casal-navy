@@ -1,20 +1,27 @@
 /* Casal Navy — service worker: app shell offline-first */
-const CACHE = 'casal-navy-v72';
+const CACHE = 'casal-navy-v73';
 const ASSETS = [
   '.', 'index.html', 'manifest.json',
   'css/style.css',
-  'js/plans.js', 'js/history_seed.js', 'js/sb.js', 'js/store.js', 'js/app.js?v=74',
+  'js/plans.js', 'js/history_seed.js', 'js/sb.js?v=73', 'js/store.js?v=73', 'js/app.js?v=74',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png',
   'img/watermark.jpg', 'audio/silence.mp3',
 ];
+// Sem estes o app nem abre nem loga: se algum falhar no precache, a
+// instalação é ABORTADA (nada de skipWaiting) e o SW/cache anterior —
+// bom — continua servindo. Cache furado nunca substitui um cache bom.
+const ESSENTIAL = ['index.html', 'js/app.js?v=74', 'js/sb.js?v=73', 'js/store.js?v=73'];
 self.addEventListener('install', e => {
-  // instalação resiliente: se algum arquivo falhar/lentar no download, os demais
-  // entram no cache mesmo assim e a atualização não trava no meio do caminho.
+  // instalação resiliente pros arquivos não-essenciais: se algum falhar/
+  // lentar no download, os demais entram no cache mesmo assim.
   // cache:'reload' ignora o cache HTTP do navegador: o cache da versão nova
   // sempre recebe os arquivos fresquinhos do servidor, nunca cópia velha.
-  e.waitUntil(caches.open(CACHE).then(c =>
-    Promise.allSettled(ASSETS.map(u => c.add(new Request(u, { cache: 'reload' })).catch(() => null)))
-  ).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then(async c => {
+    const results = await Promise.allSettled(ASSETS.map(u => c.add(new Request(u, { cache: 'reload' }))));
+    const failedEssential = ASSETS.filter((u, i) => results[i].status === 'rejected' && ESSENTIAL.indexOf(u) >= 0);
+    if (failedEssential.length) throw new Error('precache essencial falhou: ' + failedEssential.join(', '));
+    return self.skipWaiting();
+  }));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(ks => Promise.all(ks.filter(k => k !== CACHE).map(k => caches.delete(k)))).then(() => self.clients.claim()));

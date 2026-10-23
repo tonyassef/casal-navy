@@ -78,6 +78,20 @@ const SB = {
   // morta: token rotacionado por outro login ou expirado — só login novo
   // resolve); 'error' = rede/servidor instável (não dá pra concluir nada —
   // nunca deslogar por isso).
+  // ATENÇÃO: status 400/401/403 SOZINHO não prova sessão morta — portal
+  // cativo de wifi (academia!), proxy ou DNS respondem 401/403 com página
+  // HTML no lugar do Supabase. 'invalid' exige o corpo de erro de auth do
+  // próprio GoTrue (JSON com invalid_grant / refresh_token_not_found /
+  // campo `code` de auth); sem esse corpo, é 'error' (rede).
+  _authGrantError(data) {
+    if (!data || typeof data !== 'object') return false;
+    const ec = String(data.error_code || '');
+    if (ec === 'invalid_grant' || ec === 'refresh_token_not_found' || ec === 'refresh_token_already_used') return true;
+    if (String(data.error || '') === 'invalid_grant') return true;
+    const desc = String(data.error_description || data.msg || data.message || '');
+    if (/invalid[_\s]grant|refresh[_\s]token/i.test(desc) && (ec || data.error || typeof data.code === 'number')) return true;
+    return false;
+  },
   async refreshWithStatus() {
     if (!this.refreshToken) return 'invalid';
     let r;
@@ -88,9 +102,10 @@ const SB = {
         body: JSON.stringify({ refresh_token: this.refreshToken }),
       });
     } catch (e) { return 'error'; }
-    const data = await r.json().catch(() => ({}));
-    if (r.ok && data.access_token) { this._setSession(data); return 'ok'; }
-    if (r.status === 400 || r.status === 401 || r.status === 403) return 'invalid';
+    let data = null;
+    try { data = await r.json(); } catch (e) { data = null; } // HTML de portal cativo não é JSON
+    if (r.ok && data && data.access_token) { this._setSession(data); return 'ok'; }
+    if ((r.status === 400 || r.status === 401 || r.status === 403) && this._authGrantError(data)) return 'invalid';
     return 'error';
   },
   async refresh() { return (await this.refreshWithStatus()) === 'ok'; },

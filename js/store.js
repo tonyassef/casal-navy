@@ -96,12 +96,23 @@ const Store = {
           if (netErr(e)) return enterCached();
           const st = await this._withTimeout(SB.refreshWithStatus(), 5000).catch(() => 'error');
           if (st === 'invalid') {
-            // sessão MORTA (o servidor recusou o refresh token). Entrar com
-            // cache aqui criava a "sessão zumbi": app aparentemente logado,
-            // mas as chamadas de nuvem falhavam e o login ficava pendurado.
-            // Desloga e manda pro login — sessão nova resolve.
-            const r = await this.signOut();
-            return r === 'switched';
+            // sessão recusada pelo servidor (refresh token morto/rotacionado).
+            // NÃO apaga a sessão salva: o teardown antigo (signOut) destruía
+            // casalnavy.session e o perfil salvo, e UMA abertura num wifi de
+            // academia (portal cativo/proxy respondendo 401/403) matava a
+            // sessão boa — depois disso, sem internet = tela de login pra
+            // sempre. Caminho "soft": marca a sessão como morta (dead:true),
+            // PRESERVA session + sessions e entra com o cache (os dados
+            // locais funcionam offline). O logout explícito do usuário
+            // continua apagando tudo normalmente (signOut intacto).
+            try {
+              const s2 = this._ls('session');
+              if (s2) { s2.dead = true; this._ls('session', s2); }
+              const list = this._savedSessions().map(x =>
+                x.userId === sess.userId ? Object.assign({}, x, { dead: true }) : x);
+              this._setSavedSessions(list);
+            } catch (e) {}
+            return enterCached();
           }
           if (st !== 'ok') return enterCached(); // rede/servidor instável: não desloga
           await this._withTimeout(SB.getUser(), 5000);
