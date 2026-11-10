@@ -1,16 +1,16 @@
 /* Casal Navy — service worker: app shell offline-first */
-const CACHE = 'casal-navy-v75';
+const CACHE = 'casal-navy-v76';
 const ASSETS = [
   '.', 'index.html', 'manifest.json',
   'css/style.css',
-  'js/plans.js', 'js/history_seed.js', 'js/sb.js?v=73', 'js/store.js?v=73', 'js/app.js?v=76',
+  'js/plans.js', 'js/history_seed.js', 'js/sb.js?v=73', 'js/store.js?v=73', 'js/app.js?v=77',
   'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/icon-180.png',
   'img/watermark.jpg', 'audio/silence.mp3',
 ];
 // Sem estes o app nem abre nem loga: se algum falhar no precache, a
 // instalação é ABORTADA (nada de skipWaiting) e o SW/cache anterior —
 // bom — continua servindo. Cache furado nunca substitui um cache bom.
-const ESSENTIAL = ['index.html', 'js/app.js?v=76', 'js/sb.js?v=73', 'js/store.js?v=73'];
+const ESSENTIAL = ['index.html', 'js/app.js?v=77', 'js/sb.js?v=73', 'js/store.js?v=73'];
 self.addEventListener('install', e => {
   // instalação resiliente pros arquivos não-essenciais: se algum falhar/
   // lentar no download, os demais entram no cache mesmo assim.

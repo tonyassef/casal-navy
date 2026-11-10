@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v61'; // exibida na tela Conta
+const APP_VERSION = 'v62'; // exibida na tela Conta
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -159,8 +159,18 @@ async function saveProgressiveLog() {
   if (!built.entries.length) return;
   _progBusy = true;
   try {
-    await Store.saveLog({ log_date: S.draft.logDate, day_label: dayLabel(d), entries: built.entries,
+    const id = await Store.saveLog({ log_date: S.draft.logDate, day_label: dayLabel(d), entries: built.entries,
       notes: S.draft.notes || '' });
+    // v62: a lista em memória acompanha o salvamento. Sem isso, Histórico e
+    // Calendário só viam o treino novo ao fechar e abrir o app — a lista é
+    // carregada na abertura, antes de o registro do dia existir (foi o que a
+    // Eliza viu em 10/11: treino salvo no servidor e Histórico vazio).
+    if (id) {
+      S.logs = S.logs || [];
+      const full = { id, log_date: S.draft.logDate, day_label: dayLabel(d), entries: built.entries, notes: S.draft.notes || '' };
+      const i = S.logs.findIndex(x => x.log_date === full.log_date);
+      if (i >= 0) S.logs[i] = Object.assign({}, S.logs[i], full); else S.logs.unshift(full);
+    }
   } catch (e) { /* fundo: sem toast; o Concluir mostra o erro se falhar de verdade */ }
   _progBusy = false;
   if (_progAgain) { _progAgain = false; scheduleProgressiveSave(); }
@@ -3210,8 +3220,15 @@ $('#btn-login').addEventListener('click', () => authGo(() => Store.signIn($('#lo
 $('#btn-signup').addEventListener('click', () => authGo(() => Store.signUp($('#su-name').value, $('#su-email').value, $('#su-pass').value)));
 
 /* ---------- nav ---------- */
+/* v62: ao entrar no Histórico/Calendário, busca os registros de novo em
+   segundo plano e redesenha — a lista em memória pode estar velha (app aberto
+   antes de o treino do dia existir, registro vindo de outro aparelho etc.). */
+async function refreshLogsSoft() {
+  try { const rows = await Store.getLogs(); if (rows) { S.logs = rows; refreshActive(); } } catch (e) {}
+}
 $$('#tabbar button').forEach(b => b.addEventListener('click', () => {
   const s = b.dataset.screen; showScreen(s);
+  if (s === 'historico' || s === 'calendario') refreshLogsSoft();
   if (s === 'hoje') renderHoje(); if (s === 'historico') renderHistorico();
   if (s === 'plano') renderPlano(); if (s === 'conta') renderConta();
   if (s === 'calendario') renderCalendario(); if (s === 'desafios') renderDesafios();
