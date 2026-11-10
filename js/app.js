@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v59'; // manter igual ao CACHE do sw.js
+const APP_VERSION = 'v60'; // exibida na tela Conta
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -115,6 +115,55 @@ function saveDraft() {
   if (!S.draft) return;
   S.draft.updatedAt = Date.now();
   Store.saveDraft(S.draft); // fire-and-forget: local imediato, nuvem com debounce
+  scheduleProgressiveSave();
+}
+
+/* Salvamento progressivo do treino (v60): a cada mudança no rascunho, o treino
+   do dia é gravado no servidor como registro (workout_logs), sem esperar o
+   botão "Concluir". Antes, o treino só virava registro no concluir — se a
+   pessoa fechasse o app, esquecesse de concluir ou a conexão caísse naquele
+   instante, o treino inteiro se perdia (caso da Eliza: 09/11 e 10/11/2026,
+   séries marcadas no rascunho da nuvem e nenhum registro salvo).
+   O concluir continua igual: atualiza o MESMO registro do dia, gera o resumo
+   do duelo e limpa o rascunho. */
+let _progT = null, _progBusy = false, _progAgain = false;
+function buildEntriesFromDraft(d) {
+  const entries = Object.keys(S.draft.entries).map(k => {
+    const i = +k, ex = d.exercises[i], st = S.draft.entries[k];
+    if (!ex || !st) return null;
+    return { name: st.variant==='B' && ex.nameB ? ex.nameB : ex.nameA, variant: st.variant,
+      sets: st.sets, reps: st.reps, technique: st.technique, rest: st.rest,
+      weight: st.weight, partnerName: st.partnerName || '', partnerWeight: st.partnerWeight || '', partnerReps: st.partnerReps || '',
+      setRows: (st.setRows || []).map(rw => ({ w: rw.w || '', w2: rw.w2 || '', r: rw.r || '', done: !!rw.done })),
+      doneSets: (st.doneSets || []).filter(Boolean).length, notes: st.notes };
+  }).filter(e => e && (e.weight || e.doneSets > 0 || e.notes));
+  const fc = S.draft.cardio || {}, fa = S.draft.abs || {};
+  const cardioMin = Math.max(0, parseInt(fc.minutes, 10) || 0);
+  const absSets = Math.max(0, parseInt(fa.sets, 10) || 0);
+  if (fc.done && cardioMin > 0) entries.push({ kind: 'cardio', name: 'Cardio', machine: fc.machine || 'Outro', minutes: cardioMin });
+  if (fa.done && (absSets > 0 || fa.exercise)) entries.push({ kind: 'abs', name: 'Abdominais', exercise: fa.exercise || 'Abs', sets: absSets });
+  return { entries, cardioMin, absSets, cardioMachine: fc.machine || '' };
+}
+function scheduleProgressiveSave() {
+  if (!S.draft || !Store.user || Store.mode !== 'cloud') return;
+  clearTimeout(_progT);
+  _progT = setTimeout(saveProgressiveLog, 2500);
+}
+async function saveProgressiveLog() {
+  if (_progBusy) { _progAgain = true; return; }
+  if (!S.draft || !S.plan || !Store.user) return;
+  const d = S.plan.days[S.draft.dayIdx];
+  if (!d) return;
+  let built;
+  try { built = buildEntriesFromDraft(d); } catch (e) { return; }
+  if (!built.entries.length) return;
+  _progBusy = true;
+  try {
+    await Store.saveLog({ log_date: S.draft.logDate, day_label: dayLabel(d), entries: built.entries,
+      notes: S.draft.notes || '' });
+  } catch (e) { /* fundo: sem toast; o Concluir mostra o erro se falhar de verdade */ }
+  _progBusy = false;
+  if (_progAgain) { _progAgain = false; scheduleProgressiveSave(); }
 }
 function clearDraft() { S.draft = null; Store.clearDraft(); }
 
@@ -1068,20 +1117,8 @@ function beep(){
 async function finishWorkout() {
   ensureDraft();
   const d = S.plan.days[S.todayIdx];
-  const entries = Object.keys(S.draft.entries).map(k => {
-    const i = +k, ex = d.exercises[i], st = S.draft.entries[k];
-    return { name: st.variant==='B' && ex.nameB ? ex.nameB : ex.nameA, variant: st.variant,
-      sets: st.sets, reps: st.reps, technique: st.technique, rest: st.rest,
-      weight: st.weight, partnerName: st.partnerName || '', partnerWeight: st.partnerWeight || '', partnerReps: st.partnerReps || '',
-      setRows: (st.setRows || []).map(rw => ({ w: rw.w || '', w2: rw.w2 || '', r: rw.r || '', done: !!rw.done })),
-      doneSets: st.doneSets.filter(Boolean).length, notes: st.notes };
-  }).filter(e => e.weight || e.doneSets > 0 || e.notes);
-  // finalização: cardio + abs viram entradas especiais do treino
-  const fc = S.draft.cardio || {}, fa = S.draft.abs || {};
-  const cardioMin = Math.max(0, parseInt(fc.minutes, 10) || 0);
-  const absSets = Math.max(0, parseInt(fa.sets, 10) || 0);
-  if (fc.done && cardioMin > 0) entries.push({ kind: 'cardio', name: 'Cardio', machine: fc.machine || 'Outro', minutes: cardioMin });
-  if (fa.done && (absSets > 0 || fa.exercise)) entries.push({ kind: 'abs', name: 'Abdominais', exercise: fa.exercise || 'Abs', sets: absSets });
+  // montagem das entradas compartilhada com o salvamento progressivo (v60)
+  const { entries, cardioMin, absSets, cardioMachine } = buildEntriesFromDraft(d);
   if (!entries.length) { toast('Marque ao menos um exercício antes de concluir.'); return; }
   const prevPRs = prsByExercise();
   const log = { log_date: S.draft.logDate, day_label: dayLabel(d), entries,
@@ -1110,7 +1147,7 @@ async function finishWorkout() {
       localStorage.removeItem(wk);
     } catch (e) {}
     const rpe = parseInt(S.draft.rpe, 10) || null;
-    const kcal = estKcal({ durMin, cardioMin, cardioMachine: fc.machine, absSets, weightKg: bodyWeightKg() });
+    const kcal = estKcal({ durMin, cardioMin, cardioMachine, absSets, weightKg: bodyWeightKg() });
     try { await saveWorkoutExtra(S.draft.logDate, { rpe, kcal }); } catch (e) {}
     const summary = { log_date: S.draft.logDate, day_label: dayLabel(d),
       volume_lbs: logVolume({ entries }), duration_min: durMin,
