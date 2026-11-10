@@ -77,7 +77,7 @@ function openModal(html) { $('#modal-card').innerHTML = html; $('#modal').classL
 function closeModal() { $('#modal').classList.add('hidden'); }
 $('#modal').addEventListener('click', e => { if (e.target.id === 'modal') closeModal(); });
 
-const APP_VERSION = 'v60'; // exibida na tela Conta
+const APP_VERSION = 'v61'; // exibida na tela Conta
 /* ---------- estado ---------- */
 const S = {
   plan: null, logs: [], meta: { rotation_index: 0 },
@@ -361,8 +361,11 @@ function renderHoje() {
   const d = days[S.todayIdx];
   const draft = S.draft;
   const isDraftDay = draft && draft.dayIdx === S.todayIdx && draft.logDate === S.todayDate;
-  // se o treino da data em vista já foi concluído, avisa — o plano do dia continua o mesmo
-  const viewedDone = !!latestTodayLog();
+  // se o treino da data em vista já foi concluído, avisa — o plano do dia continua o mesmo.
+  // v61: registro sozinho NÃO é conclusão — desde a v60 o registro nasce durante o
+  // treino (salvamento progressivo). Concluído = tem registro e NÃO tem rascunho
+  // ativo daquela data (o Concluir apaga o rascunho; treino em andamento o mantém).
+  const viewedDone = !!latestTodayLog() && !isDraftDay;
   const doneToday = (S.todayDate === todayISO()) && viewedDone;
 
   let h = profileBar() + checkinCard() + noteBanner() + deloadBanner() + (offline
