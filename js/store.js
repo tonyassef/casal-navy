@@ -911,10 +911,13 @@ const Store = {
         applicationServerKey: b64ToU8(VAPID_PUBLIC),
       });
       const j = sub.toJSON();
+      // app='navy': desde 2026-11-14 push_subscriptions tem UMA linha por
+      // (user_id, app) — sem isso, esta inscrição sobrescrevia a do KORPUS
+      // (e o push matinal do KORPUS caía aqui, com texto do KORPUS).
       await SB.upsert('push_subscriptions', {
-        user_id: this.user.id, endpoint: j.endpoint,
+        user_id: this.user.id, app: 'navy', endpoint: j.endpoint,
         subscription: j, updated_at: new Date().toISOString(),
-      }, 'user_id');
+      }, 'user_id,app');
       return true;
     } catch (e) { return false; }
   },
