@@ -42,7 +42,7 @@ const SB = {
   // captcha_token quando recebe um token; ver js/captcha.js.
   async signUp(email, password, name, captchaToken) {
     const body = { email, password, data: { name } };
-    if (captchaToken) body.captcha_token = captchaToken;
+    if (captchaToken) body.gotrue_meta_security = { captcha_token: captchaToken };
     const data = await this._auth('/signup', body);
     // com "confirm email" desligado, ja volta sessao; se nao, pede login
     if (data.access_token) this._setSession(data);
@@ -50,7 +50,7 @@ const SB = {
   },
   async signIn(email, password, captchaToken) {
     const body = { email, password };
-    if (captchaToken) body.captcha_token = captchaToken;
+    if (captchaToken) body.gotrue_meta_security = { captcha_token: captchaToken };
     const data = await this._auth('/token?grant_type=password', body);
     this._setSession(data);
     return data;
@@ -59,7 +59,7 @@ const SB = {
   // Não mexe na sessão atual de quem envia — serve pra convidar amigo.
   async otp(email, redirectTo, captchaToken) {
     const body = { email, create_user: true };
-    if (captchaToken) body.captcha_token = captchaToken;
+    if (captchaToken) body.gotrue_meta_security = { captcha_token: captchaToken };
     if (redirectTo) body.options = { emailRedirectTo: redirectTo };
     await this._auth('/otp', body, false);
     return true;
