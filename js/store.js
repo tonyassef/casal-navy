@@ -157,7 +157,7 @@ const Store = {
     const redirectTo = (typeof location !== 'undefined')
       ? location.origin + location.pathname + location.search
       : undefined;
-    await SB.otp(email, redirectTo);
+    await SB.otp(email, redirectTo, await window.korpusCaptchaToken());
     return true;
   },
 
@@ -192,9 +192,10 @@ const Store = {
     if (!name || !email || !password || password.length < 4) throw new Error('Preencha nome, e-mail e senha (min. 4 letras).');
     if (this.cfg.url && this.cfg.key) {
       SB.configure(this.cfg.url, this.cfg.key);
-      await SB.signUp(email, password, name);
+      await SB.signUp(email, password, name, await window.korpusCaptchaToken());
       // garante que existe sessao (quando confirmacao de e-mail esta ativa, faz login em seguida)
-      if (!SB.token) await SB.signIn(email, password);
+      // (token do captcha é de uso único: o login de reserva pede OUTRO)
+      if (!SB.token) await SB.signIn(email, password, await window.korpusCaptchaToken());
       const uid = SB.user.id;
       try { await SB.ins('profiles', { id: uid, name, meta: { rotation_index: 0 } }); } catch (e) { /* ja existe */ }
       await SB.ins('plans', { user_id: uid, name: 'Rotação A–F', days: PLAN_6DAY, active: true });
@@ -217,7 +218,7 @@ const Store = {
     email = email.trim().toLowerCase();
     if (this.cfg.url && this.cfg.key) {
       SB.configure(this.cfg.url, this.cfg.key);
-      await SB.signIn(email, password);
+      await SB.signIn(email, password, await window.korpusCaptchaToken());
       const uid = SB.user.id;
       let prof = await SB.sel('profiles', '?id=eq.' + uid + '&select=id,name,meta');
       if (!prof || !prof.length) {
