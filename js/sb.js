@@ -1,10 +1,11 @@
 // Cliente minimo do Supabase via REST (sem dependencias externas).
-// Usa: Auth (signup/signin) + PostgREST (tabelas). A anon key e publica
-// por desenho e fica protegida pelas policies RLS do schema.sql.
+// Usa: Auth (signup/signin) + PostgREST (tabelas). A chave publishable e
+// publica por desenho e fica protegida pelas policies RLS do schema.sql.
+// (#38: migrado da chave legada JWT pra publishable em 17/11/2026.)
 // Projeto padrao do Casal Navy (pre-configurado; pode ser trocado na tela Conta).
 const DEFAULT_SB = {
   url: 'https://rbumnmyeahjtjxeyrnry.supabase.co',
-  key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InJidW1ubXllYWhqdGp4ZXlybnJ5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTAwNDc2ODAsImV4cCI6MjEwNTYyMzY4MH0.Zm-UJKt2Lpqgb6-xevMKCO47qBijGKQ2TXBr69dtIQM',
+  key: 'sb_publishable_92sp8qRVQwb2Ng57IaKvIw_b8hvKcjO',
 };
 // Timeout duro em TODA chamada de rede: sem isso, rede "zumbi" (sinal fraco,
 // portal cativo, DNS morto) pendura o fetch por minutos e o app nem abre nem

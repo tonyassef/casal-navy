@@ -37,7 +37,14 @@ const Store = {
 
   // ---------- sessao ----------
   async boot() {
-    const cfg = this._ls('sbconfig') || DEFAULT_SB;
+    let cfg = this._ls('sbconfig') || DEFAULT_SB;
+    // #38 (17/11/2026): quem tinha a configuração salva com a chave legada
+    // (JWT "eyJ...") troca sozinho pra publishable na abertura — a legada
+    // aposenta no começo de 2027 e o app não pode ficar preso nela.
+    if (cfg && cfg.url === DEFAULT_SB.url && typeof cfg.key === 'string' && cfg.key.indexOf('eyJ') === 0) {
+      cfg = { ...DEFAULT_SB };
+      this._ls('sbconfig', cfg);
+    }
     if (cfg && cfg.url && cfg.key) { this.cfg = cfg; SB.configure(cfg.url, cfg.key); }
     // callback do link mágico (#access_token=...): cria a sessão sem pedir senha
     try {
