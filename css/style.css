@@ -26,7 +26,12 @@ body::after{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
 .topbar .date{color:var(--muted);font-size:13px;}
 
 /* auth */
-.auth-wrap{padding:36px 22px;max-width:400px;margin:0 auto;}
+/* login: desenho do casal (restaurante das rosas) de fundo — pedido do Tony, 18/11/2026 */
+#screen-auth{position:relative;min-height:100vh;}
+#screen-auth::before{content:"";position:absolute;inset:0;z-index:0;
+  background:linear-gradient(180deg,rgba(234,245,253,.66),rgba(234,245,253,.30) 45%,rgba(234,245,253,.58)),
+             url('../img/login-bg.jpg') center/cover no-repeat;}
+.auth-wrap{padding:36px 22px;max-width:400px;margin:0 auto;position:relative;z-index:1;}
 .brand{text-align:center;margin-bottom:26px;}
 .brand-icon{width:84px;height:84px;border-radius:22px;box-shadow:0 8px 28px rgba(77,163,255,.25);}
 .brand h1{margin:12px 0 4px;font-size:30px;letter-spacing:.5px;}
