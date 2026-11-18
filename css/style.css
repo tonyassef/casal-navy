@@ -33,7 +33,7 @@ body::after{content:"";position:fixed;inset:0;z-index:0;pointer-events:none;
              url('../img/login-bg.jpg') center/cover no-repeat;}
 .auth-wrap{padding:36px 22px;max-width:400px;margin:0 auto;position:relative;z-index:1;}
 /* formulario mais pra baixo: rostos do casal aparecem acima dele, entre os rostos e as rosas */
-#screen-auth .tabs{margin-top:15vh;}
+#screen-auth .tabs{margin-top:23vh;}
 .brand{text-align:center;margin-bottom:26px;}
 .brand-icon{width:84px;height:84px;border-radius:22px;box-shadow:0 8px 28px rgba(77,163,255,.25);}
 .brand h1{margin:12px 0 4px;font-size:30px;letter-spacing:.5px;}
